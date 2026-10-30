@@ -69,7 +69,7 @@
                 
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="text-xs text-gray-500 font-bold uppercase">Objectif (km/j)</label>
+                        <label class="text-xs text-gray-500 font-bold uppercase" title="Règle d'or: 100m de dénivelé = 1km d'effort supplémentaire.">Effort (km/j) ℹ️</label>
                         <input type="number" id="plan-km-day" value="80" class="w-full p-2 border rounded mt-1 bg-white font-bold text-blue-600">
                     </div>
                     <div>
@@ -157,8 +157,17 @@
             </button>
         </div>
 
-        <!-- CARTE -->
-        <div id="map" class="flex-1 z-0"></div>
+        <!-- CARTE ET VISEUR MÉTÉO -->
+        <div class="flex-1 z-0 relative h-full">
+            <div id="map" class="absolute inset-0"></div>
+            
+            <!-- Viseur central -->
+            <div class="absolute inset-0 pointer-events-none z-[400] flex items-center justify-center">
+                <div class="w-6 h-6 border-2 border-gray-600/50 rounded-full flex items-center justify-center shadow-sm">
+                    <div class="w-1.5 h-1.5 bg-red-500 rounded-full shadow-sm"></div>
+                </div>
+            </div>
+        </div>
         
         <!-- PROFIL DÉNIVELÉ -->
         <div class="h-48 bg-white border-t border-gray-200 p-2 flex-shrink-0">
@@ -249,12 +258,12 @@
         const tracesAutomatiques = [
             { url: '2026-08-12_3192717650_Big Big Trip - Annecy to Zurich - komoot.gpx', nom: 'Annecy-Zurich', mode: 'bike' },
             { url: '2026-10-20_3192771285_Big Big Trip - Zurich to Venise - komoot.gpx', nom: 'Zurich-Venise', mode: 'bike' },
+            { url: '2026-10-30_3372877022_TRAIN VENISE - komoot (1).gpx', nom: 'Train-Italie', mode: 'train' },
             { url: '2026-10-30_3307456623_Big Big Trip - Venise à Zagreb - komoot.gpx', nom: 'Venise-Zagreb', mode: 'bike' },
             { url: '2026-10-04_3307475390_Big Big Trip - Zagreb à Dubrovnik - komoot.gpx', nom: 'Zagreb-Dubrovnik', mode: 'bike' },
             { url: '2026-10-20_3328510323_Big Big Trip - Dubrovnik à Olympe - komoot.gpx', nom: 'Dubrovnik-Olympe', mode: 'bike' },
             { url: '2026-10-20_3342529635_Big Big Trip - Olympe à Istambul - komoot.gpx', nom: 'Olympe-Istambul', mode: 'bike' },
             { url: '2026-10-20_3358792947_Big Big Trip - Istanbul à Konya - komoot.gpx', nom: 'Istambul-Konya', mode: 'bike' },
-            { url: '2026-10-30_3372877022_TRAIN VENISE - komoot (1).gpx', mode: 'train' },
             { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' }
         ];
 
@@ -533,15 +542,18 @@
             milestonesLayerGroup.clearLayers();
             if (kmPerDay <= 0 || allGpxTracks.length === 0) return;
 
-            let currentDistInBike = 0;
-            let nextMilestone = kmPerDay;
+            const maxElePerDay = 1300; // Règle d'or : 1300m D+ max par jour
+
+            let currentDay = 1;
+            let dayDistKm = 0;
+            let dayEleUp = 0;
 
             allGpxTracks.forEach(t => {
                 if (t.mode === 'train') return; 
 
                 let points = [];
                 
-                // Fonction récursive indestructible pour fouiller n'importe quelle structure Komoot
+                // Fonction récursive indestructible pour extraire les points
                 function extractPts(layer) {
                     if (layer instanceof L.Polyline) {
                         const latlngs = layer.getLatLngs();
@@ -549,12 +561,7 @@
                             arr.forEach(item => {
                                 if (Array.isArray(item)) flatten(item);
                                 else if (item && item.lat && item.lng) {
-                                    // S'assurer que le point a bien la fonction de calcul de distance
-                                    if (typeof item.distanceTo !== 'function') {
-                                        points.push(L.latLng(item.lat, item.lng));
-                                    } else {
-                                        points.push(item);
-                                    }
+                                    points.push(item);
                                 }
                             });
                         };
@@ -569,39 +576,63 @@
 
                 if (points.length < 2) return;
 
-                let officialGpxDistance = 0;
-                try { officialGpxDistance = t.gpx.get_distance(); } catch(e) {}
-                
-                if (!officialGpxDistance || officialGpxDistance <= 0) return;
-
-                let geomDistance = 0;
                 for (let i = 0; i < points.length - 1; i++) {
-                    geomDistance += points[i].distanceTo(points[i+1]);
-                }
-                
-                if (geomDistance <= 0) return; // Sécurité division par zéro
-                const ratio = officialGpxDistance / geomDistance;
-
-                for (let i = 0; i < points.length - 1; i++) {
-                    const segmentDist = points[i].distanceTo(points[i+1]) * ratio;
-                    const segmentDistKm = segmentDist / 1000;
+                    const p1 = points[i];
+                    const p2 = points[i+1];
                     
-                    if (currentDistInBike + segmentDistKm >= nextMilestone) {
-                        const fraction = (nextMilestone - currentDistInBike) / segmentDistKm;
-                        const lat = points[i].lat + (points[i+1].lat - points[i].lat) * fraction;
-                        const lng = points[i].lng + (points[i+1].lng - points[i].lng) * fraction;
+                    const segmentDistKm = p1.distanceTo(p2) / 1000;
+                    if (segmentDistKm <= 0) continue;
+
+                    // Récupération de l'altitude du point (Leaflet stocke souvent ça dans .alt)
+                    const ele1 = p1.alt || p1.meta?.ele || 0;
+                    const ele2 = p2.alt || p2.meta?.ele || ele1;
+                    const segmentEleUp = Math.max(0, ele2 - ele1);
+
+                    // Règle d'or : On s'arrête si on dépasse le kilométrage OU le dénivelé max
+                    if (dayDistKm + segmentDistKm >= kmPerDay || dayEleUp + segmentEleUp >= maxElePerDay) {
                         
+                        // Calcul de la fraction exacte du segment où on s'arrête
+                        let fractionDist = (kmPerDay - dayDistKm) / segmentDistKm;
+                        let fractionEle = segmentEleUp > 0 ? (maxElePerDay - dayEleUp) / segmentEleUp : 1;
+                        
+                        // On prend la première limite atteinte (la plus petite fraction)
+                        let fraction = Math.min(fractionDist, fractionEle);
+                        if (fraction < 0) fraction = 0;
+                        if (fraction > 1) fraction = 1;
+
+                        const lat = p1.lat + (p2.lat - p1.lat) * fraction;
+                        const lng = p1.lng + (p2.lng - p1.lng) * fraction;
+                        
+                        const finalDayDist = dayDistKm + (segmentDistKm * fraction);
+                        const finalDayEle = dayEleUp + (segmentEleUp * fraction);
+
                         const icon = L.divIcon({
                             className: 'custom-div-icon',
-                            html: `<div class='milestone-label'>${Math.round(nextMilestone)}</div>`,
+                            html: `<div class='milestone-label cursor-pointer transition-transform hover:scale-110 hover:bg-blue-50' title='Cliquez pour voir le bilan'>J${currentDay}</div>`,
                             iconSize: [30, 30],
                             iconAnchor: [15, 15]
                         });
                         
-                        L.marker([lat, lng], {icon: icon}).addTo(milestonesLayerGroup);
-                        nextMilestone += kmPerDay;
+                        const marker = L.marker([lat, lng], {icon: icon}).addTo(milestonesLayerGroup);
+                        
+                        marker.bindPopup(`
+                            <div class="text-center font-sans p-1 min-w-[150px]">
+                                <b class="text-lg text-blue-600 mb-2 block">Bilan Jour ${currentDay}</b>
+                                <div class="text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 text-left">
+                                    🚴 <b>${finalDayDist.toFixed(1)}</b> km parcourus<br>
+                                    🏔️ <b>${finalDayEle.toFixed(0)}</b> m de D+
+                                </div>
+                            </div>
+                        `);
+
+                        currentDay++;
+                        // Le reliquat du segment non-utilisé sert pour le début du jour suivant
+                        dayDistKm = segmentDistKm * (1 - fraction);
+                        dayEleUp = segmentEleUp * (1 - fraction);
+                    } else {
+                        dayDistKm += segmentDistKm;
+                        dayEleUp += segmentEleUp;
                     }
-                    currentDistInBike += segmentDistKm;
                 }
             });
         }
