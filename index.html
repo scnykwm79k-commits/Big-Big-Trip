@@ -90,6 +90,10 @@
                     </div>
                 </div>
 
+                <button id="btn-recalc" class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-2 px-4 rounded-lg mb-4 transition shadow-sm text-sm flex items-center justify-center gap-2">
+                    🔄 Recalculer les étapes
+                </button>
+
                 <div class="grid grid-cols-2 gap-2 text-sm">
                     <div class="bg-white p-2 rounded shadow-sm">
                         <span class="block text-gray-400 text-xs">Distance Vélo</span>
@@ -450,11 +454,17 @@
             }
         };
 
-        inputKmDay.addEventListener('input', recalculateTotals);
-        inputKmMax.addEventListener('input', recalculateTotals);
-        inputEleMin.addEventListener('input', recalculateTotals);
-        inputEleMax.addEventListener('input', recalculateTotals);
-        inputRestDays.addEventListener('input', recalculateTotals);
+        // On remplace les écouteurs "input" automatiques par le bouton
+        const btnRecalc = document.getElementById('btn-recalc');
+        btnRecalc.addEventListener('click', () => {
+            updateStatus("Recalcul des étapes en cours...", true);
+            // On utilise un tout petit délai (setTimeout) pour laisser le temps au navigateur
+            // d'afficher le message "en cours..." avant de bloquer la page avec les gros calculs.
+            setTimeout(() => {
+                recalculateTotals();
+                updateStatus("Étapes mises à jour.", false, true);
+            }, 50);
+        });
 
         function recalculateTotals() {
             let totalBikeDist = 0;
@@ -502,7 +512,7 @@
             const restDaysPerWeek = parseFloat(inputRestDays.value) || 0;
             
             // On calcule d'abord les étapes réelles avec l'algorithme pour avoir le vrai nombre de jours de vélo
-            const totalCyclingDays = drawMilestones(kmPerDay, kmMax, eleMin, eleMax);
+            const totalCyclingDays = drawMilestones(kmPerDay, kmMax, eleMin, eleMax, restDaysPerWeek);
             
             const cyclingDaysPerWeek = 7 - restDaysPerWeek;
             
@@ -561,7 +571,7 @@
         }
 
         // --- 7. JALONS KILOMÉTRIQUES (ÉTAPES) ---
-        function drawMilestones(baseKm, maxKm, minEle, maxEle) {
+        function drawMilestones(baseKm, maxKm, minEle, maxEle, restDaysPerWeek = 0) {
             milestonesLayerGroup.clearLayers();
             if (baseKm <= 0 || allGpxTracks.length === 0) return 0;
 
@@ -646,9 +656,18 @@
                         const finalDayDist = dayDistKm + (segmentDistKm * fraction);
                         const finalDayEle = dayEleUp + (segmentEleUp * fraction);
 
+                        // Calcul du jour réel d'affichage en tenant compte des pauses (ex: 2 jours pause -> sauts de J5 à J8)
+                        let displayDay = currentDay;
+                        if (restDaysPerWeek > 0 && restDaysPerWeek < 7) {
+                            const cyclingDaysPerWeek = 7 - restDaysPerWeek;
+                            const completedWeeks = Math.floor((currentDay - 1) / cyclingDaysPerWeek);
+                            const dayInCurrentWeek = ((currentDay - 1) % cyclingDaysPerWeek) + 1;
+                            displayDay = (completedWeeks * 7) + dayInCurrentWeek;
+                        }
+
                         const icon = L.divIcon({
                             className: 'custom-div-icon',
-                            html: `<div class='milestone-label cursor-pointer transition-transform hover:scale-110 hover:bg-blue-50' title='Cliquez pour voir le bilan'>J${currentDay}</div>`,
+                            html: `<div class='milestone-label cursor-pointer transition-transform hover:scale-110 hover:bg-blue-50' title='Cliquez pour voir le bilan'>J${displayDay}</div>`,
                             iconSize: [30, 30],
                             iconAnchor: [15, 15]
                         });
@@ -657,7 +676,7 @@
                         
                         marker.bindPopup(`
                             <div class="text-center font-sans p-1 min-w-[150px]">
-                                <b class="text-lg text-blue-600 mb-2 block">Bilan Jour ${currentDay}</b>
+                                <b class="text-lg text-blue-600 mb-2 block">Bilan Jour ${displayDay}</b>
                                 <div class="text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 text-left">
                                     🚴 <b>${finalDayDist.toFixed(1)}</b> km parcourus<br>
                                     🏔️ <b>${finalDayEle.toFixed(0)}</b> m de D+
