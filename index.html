@@ -38,7 +38,7 @@
         }
     </style>
 </head>
-<body class="h-screen w-screen flex flex-col md:flex-row overflow-hidden bg-gray-50 font-sans">
+<body class="h-screen w-screen flex overflow-hidden bg-gray-50 font-sans relative">
 
     <!-- ÉCRAN DE VERROUILLAGE -->
     <div id="auth-modal" class="absolute inset-0 z-[9999] flex items-center justify-center bg-gray-900/60 backdrop-blur-md">
@@ -53,19 +53,19 @@
         </div>
     </div>
 
+    <!-- OVERLAY MOBILE (Fond sombre quand le menu est ouvert) -->
+    <div id="sidebar-overlay" class="absolute inset-0 bg-black/50 z-[990] hidden md:hidden backdrop-blur-sm transition-opacity"></div>
+
     <!-- SIDEBAR -->
-    <div class="w-full md:w-96 bg-white shadow-xl flex flex-col h-full z-10">
-        <div class="p-6 bg-blue-600 text-white flex-shrink-0">
+    <div id="sidebar" class="absolute md:relative inset-y-0 left-0 w-[85%] max-w-[320px] md:w-96 bg-white shadow-2xl md:shadow-xl flex flex-col h-full z-[1000] md:z-10 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
+        <div class="p-6 bg-blue-600 text-white flex-shrink-0 flex justify-between items-center">
             <h1 class="text-2xl font-bold flex items-center gap-2">
                 <span>🌍</span> Big Big Trip
             </h1>
+            <button id="btn-close-sidebar" class="md:hidden text-white text-3xl leading-none hover:text-gray-200">&times;</button>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-6 space-y-8">
-            
-            <!-- Statistiques et Planification -->
-            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">⏱️ Planification</h3>
+        <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-8">
                 
                 <div class="grid grid-cols-2 gap-2 mb-4">
                     <div>
@@ -162,8 +162,14 @@
     </div>
 
     <!-- MAIN AREA (Map + Chart) -->
-    <div class="flex-1 flex flex-col relative h-full">
+    <div class="flex-1 flex flex-col relative h-full min-w-0">
         <!-- Boutons Flottants -->
+        <div class="absolute top-4 left-4 z-[400] md:hidden">
+            <button id="btn-open-sidebar" class="bg-white p-2 w-12 h-12 rounded-full shadow-lg hover:bg-gray-100 transition text-xl flex items-center justify-center" title="Ouvrir le menu">
+                ☰
+            </button>
+        </div>
+
         <div class="absolute top-4 right-4 z-[400] flex flex-col gap-2">
             <button id="btn-geoloc" class="bg-white p-3 rounded-full shadow-lg hover:bg-gray-100 transition" title="Ma position">
                 📍
@@ -186,7 +192,7 @@
         </div>
         
         <!-- PROFIL DÉNIVELÉ -->
-        <div class="h-48 bg-white border-t border-gray-200 p-2 flex-shrink-0">
+        <div class="h-32 md:h-48 bg-white border-t border-gray-200 p-1 md:p-2 flex-shrink-0 w-full">
             <canvas id="elevationChart"></canvas>
         </div>
     </div>
@@ -309,6 +315,26 @@
         const inputEleMin = document.getElementById('plan-ele-min');
         const inputEleMax = document.getElementById('plan-ele-max');
         const inputRestDays = document.getElementById('plan-rest-days');
+
+        // Éléments du menu mobile
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        const btnOpenSidebar = document.getElementById('btn-open-sidebar');
+        const btnCloseSidebar = document.getElementById('btn-close-sidebar');
+
+        function toggleSidebar(show) {
+            if (show) {
+                sidebar.classList.remove('-translate-x-full');
+                sidebarOverlay.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                sidebarOverlay.classList.add('hidden');
+            }
+        }
+
+        if (btnOpenSidebar) btnOpenSidebar.addEventListener('click', () => toggleSidebar(true));
+        if (btnCloseSidebar) btnCloseSidebar.addEventListener('click', () => toggleSidebar(false));
+        if (sidebarOverlay) sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
 
         function updateStatus(msg, isLoading = false, isSuccess = false) {
             let icon = isLoading ? '⏳' : (isSuccess ? '✅' : 'ℹ️');
