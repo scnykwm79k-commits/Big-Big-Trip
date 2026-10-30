@@ -36,6 +36,11 @@
             color: #2563eb;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+        /* Assure que la barre de défilement est toujours propre */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body class="h-screen w-screen flex overflow-hidden bg-gray-50 font-sans relative">
@@ -65,12 +70,13 @@
             <button id="btn-close-sidebar" class="md:hidden text-white text-3xl leading-none hover:text-gray-200">&times;</button>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-8">
+        <!-- Le min-h-0 force Flexbox à accepter le défilement si le contenu dépasse -->
+        <div class="flex-1 overflow-y-auto min-h-0 p-4 md:p-6 space-y-6">
                 
-                <div class="grid grid-cols-2 gap-2 mb-4">
+                <div class="grid grid-cols-2 gap-3 mb-2">
                     <div>
                         <label class="text-[10px] text-gray-500 font-bold uppercase" title="Kilométrage idéal">Dist. Cible (km)</label>
-                        <input type="number" id="plan-km-day" value="80" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
+                        <input type="number" id="plan-km-day" value="70" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
                     </div>
                     <div>
                         <label class="text-[10px] text-gray-500 font-bold uppercase" title="Limite absolue à ne jamais dépasser">Dist. Max (km) ℹ️</label>
@@ -78,11 +84,11 @@
                     </div>
                     <div>
                         <label class="text-[10px] text-gray-500 font-bold uppercase" title="On rallonge l'étape si on n'a pas fait ce dénivelé">D+ Min (m) ℹ️</label>
-                        <input type="number" id="plan-ele-min" value="300" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
+                        <input type="number" id="plan-ele-min" value="450" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
                     </div>
                     <div>
                         <label class="text-[10px] text-gray-500 font-bold uppercase" title="Limite absolue de grimpe par jour">D+ Max (m) ℹ️</label>
-                        <input type="number" id="plan-ele-max" value="1300" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
+                        <input type="number" id="plan-ele-max" value="1350" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
                     </div>
                     <div class="col-span-2">
                         <label class="text-[10px] text-gray-500 font-bold uppercase">Jours de pause (par sem)</label>
@@ -90,48 +96,47 @@
                     </div>
                 </div>
 
-                <button id="btn-recalc" class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-2 px-4 rounded-lg mb-4 transition shadow-sm text-sm flex items-center justify-center gap-2">
+                <button id="btn-recalc" class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-2 px-4 rounded-lg transition shadow-sm text-sm flex items-center justify-center gap-2">
                     🔄 Recalculer les étapes
                 </button>
 
                 <div class="grid grid-cols-2 gap-2 text-sm">
-                    <div class="bg-white p-2 rounded shadow-sm">
+                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
                         <span class="block text-gray-400 text-xs">Distance Vélo</span>
                         <span id="stat-dist" class="font-bold text-lg text-gray-800">0 km</span>
                     </div>
-                    <div class="bg-white p-2 rounded shadow-sm">
+                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
                         <span class="block text-gray-400 text-xs">Temps estimé</span>
                         <span id="stat-days" class="font-bold text-lg text-green-600">0 jours</span>
                     </div>
-                    <div class="bg-white p-2 rounded shadow-sm">
+                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
                         <span class="block text-gray-400 text-xs">Dénivelé +</span>
                         <span id="stat-ele-up" class="font-bold text-md text-red-500">0 m</span>
                     </div>
-                    <div class="bg-white p-2 rounded shadow-sm">
+                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
                         <span class="block text-gray-400 text-xs">Dénivelé -</span>
                         <span id="stat-ele-down" class="font-bold text-md text-blue-500">0 m</span>
                     </div>
                 </div>
-            </div>
 
             <!-- Import et Liste des Tracés -->
             <div>
                 <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">📂 Mes Tracés (GPX)</h3>
                 
-                <label class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition">
-                    <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                <label class="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition mb-3">
+                    <div class="flex flex-col items-center justify-center">
                         <span class="text-gray-500 text-sm">Cliquez ou glissez un fichier .gpx</span>
                     </div>
                     <input type="file" id="gpx-input" accept=".gpx" class="hidden" />
                 </label>
 
-                <div id="track-list" class="mt-4 space-y-2 max-h-48 overflow-y-auto">
+                <div id="track-list" class="space-y-2 max-h-40 overflow-y-auto border-t border-b py-2">
                     <!-- Liste générée en JS -->
                 </div>
             </div>
 
             <!-- Recherche POI -->
-            <div id="poi-search-container" class="hidden">
+            <div id="poi-search-container" class="hidden pb-4">
                 <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🔍 Autour du tracé</h3>
                 
                 <div class="space-y-2 mb-4 text-sm">
@@ -186,7 +191,7 @@
                 </div>
             </div>
 
-            <!-- NOUVEAU : Message de statut flottant (Toast) -->
+            <!-- Message de statut flottant (Toast) -->
             <div id="status-toast" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[500] bg-gray-900/80 text-white px-5 py-2 rounded-full shadow-lg text-sm backdrop-blur transition-opacity duration-500 opacity-0 pointer-events-none text-center whitespace-nowrap">
                 Prêt à charger la carte...
             </div>
@@ -208,11 +213,10 @@
         const authError = document.getElementById('auth-error');
 
         let initialLoadedCount = 0;
-        let isInitialLoadingFinished = false; // Verrou de sécurité pour éviter les doubles lancements
+        let isInitialLoadingFinished = false;
 
         function checkPassword() {
             if (authPwd.value === SECRET_PASSWORD) {
-                // On cache les champs et on affiche un message de chargement
                 authPwd.style.display = 'none';
                 authBtn.style.display = 'none';
                 authError.style.display = 'none';
@@ -231,7 +235,6 @@
                 return;
             }
 
-            // CHRONOMÈTRE DE SÉCURITÉ : Déverrouillage forcé après 8 secondes !
             setTimeout(() => {
                 if (!isInitialLoadingFinished) {
                     console.warn("Temps de chargement trop long. Déverrouillage de sécurité activé !");
@@ -245,15 +248,14 @@
         }
 
         function finishInitialLoading() {
-            if (isInitialLoadingFinished) return; // Si déjà déverrouillé par le chrono, on stop.
+            if (isInitialLoadingFinished) return;
             isInitialLoadingFinished = true;
 
-            authModal.style.display = 'none'; // Disparition de l'écran de chargement
+            authModal.style.display = 'none'; 
             
             allGpxTracks.sort((a, b) => a.order - b.order);
             renderTrackList();
             
-            // On laisse le temps à la carte de s'afficher avant de faire les calculs lourds
             setTimeout(() => {
                 map.invalidateSize();
                 const bounds = gpxLayerGroup.getBounds();
@@ -265,7 +267,6 @@
                     document.getElementById('poi-search-container').classList.remove('hidden');
                     updateStatus(`Tous les tracés sont prêts.`, false, true);
                 } else {
-                    // Si la liste est vide (aucun tracé automatique ou échec de chargement)
                     updateStatus(`Prêt. Importez un tracé pour commencer.`, false, true);
                 }
             }, 200);
@@ -346,7 +347,6 @@
             
             clearTimeout(statusTimeout);
             
-            // Auto-masquage après 3.5 secondes si ce n'est pas un chargement
             if (!isLoading) {
                 statusTimeout = setTimeout(() => {
                     statusToast.classList.add('opacity-0');
@@ -370,7 +370,6 @@
                 }
             };
 
-            // Fonction sécurisée pour faire avancer le chargement
             function handleInitialProgress() {
                 if (isInitial && !isInitialLoadingFinished) {
                     initialLoadedCount++;
@@ -378,7 +377,6 @@
                     if (modalTitle) {
                         modalTitle.innerText = `Chargement... (${initialLoadedCount}/${tracesAutomatiques.length})`;
                     }
-                    // Déverrouillage garanti si on atteint le bon compte avant le chrono
                     if (initialLoadedCount >= tracesAutomatiques.length) {
                         finishInitialLoading();
                     }
@@ -386,7 +384,6 @@
             }
 
             try {
-                // Encode l'URL pour gérer les espaces des fichiers sur GitHub
                 const safeUrl = gpxSource.startsWith('blob:') ? gpxSource : encodeURI(gpxSource);
 
                 new L.GPX(safeUrl, gpxOptions).on('loaded', function(e) {
@@ -405,7 +402,6 @@
                     if (isInitial) {
                         handleInitialProgress();
                     } else {
-                        // Si c'est un fichier ajouté MANUELLEMENT plus tard
                         allGpxTracks.sort((a, b) => a.order - b.order);
                         const bounds = gpxLayerGroup.getBounds();
                         if (bounds.isValid()) map.fitBounds(bounds);
@@ -472,7 +468,6 @@
             const track = allGpxTracks.find(t => t.id === id);
             if (track) {
                 track.mode = track.mode === 'bike' ? 'train' : 'bike';
-                // Redessiner visuellement
                 track.gpx.setStyle({
                     color: track.mode === 'train' ? '#9ca3af' : '#2563eb',
                     opacity: track.mode === 'train' ? 0.6 : 0.8,
@@ -493,12 +488,9 @@
             }
         };
 
-        // On remplace les écouteurs "input" automatiques par le bouton
         const btnRecalc = document.getElementById('btn-recalc');
         btnRecalc.addEventListener('click', () => {
             updateStatus("Recalcul des étapes en cours...", true);
-            // On utilise un tout petit délai (setTimeout) pour laisser le temps au navigateur
-            // d'afficher le message "en cours..." avant de bloquer la page avec les gros calculs.
             setTimeout(() => {
                 recalculateTotals();
                 updateStatus("Étapes mises à jour.", false, true);
@@ -516,7 +508,6 @@
 
             allGpxTracks.forEach(t => {
                 if (t.mode === 'bike') {
-                    // SÉCURITÉ : On protège tous les calculs. Si une donnée manque (ex: pas d'altitude), on met 0 et on ne plante pas.
                     let distKm = 0;
                     try { distKm = (t.gpx.get_distance() || 0) / 1000; } catch(e) {}
                     
@@ -525,7 +516,6 @@
                     try { totalEleUp += t.gpx.get_elevation_gain() || 0; } catch(e) {}
                     try { totalEleDown += t.gpx.get_elevation_loss() || 0; } catch(e) {}
 
-                    // Récupération des données d'altitude pour le graphique (avec sécurité)
                     let eleData = [];
                     try { eleData = t.gpx.get_elevation_data() || []; } catch(e) {}
 
@@ -543,14 +533,13 @@
             document.getElementById('stat-ele-up').innerText = totalEleUp.toFixed(0) + ' m';
             document.getElementById('stat-ele-down').innerText = totalEleDown.toFixed(0) + ' m';
 
-            // Calcul du temps
-            const kmPerDay = parseFloat(inputKmDay.value) || 80;
+            // Paramètres mis à jour (70km, 450 min, 1350 max)
+            const kmPerDay = parseFloat(inputKmDay.value) || 70;
             const kmMax = parseFloat(inputKmMax.value) || 120;
-            const eleMin = parseFloat(inputEleMin.value) || 300;
-            const eleMax = parseFloat(inputEleMax.value) || 1300;
+            const eleMin = parseFloat(inputEleMin.value) || 450;
+            const eleMax = parseFloat(inputEleMax.value) || 1350;
             const restDaysPerWeek = parseFloat(inputRestDays.value) || 0;
             
-            // On calcule d'abord les étapes réelles avec l'algorithme pour avoir le vrai nombre de jours de vélo
             const totalCyclingDays = drawMilestones(kmPerDay, kmMax, eleMin, eleMax, restDaysPerWeek);
             
             const cyclingDaysPerWeek = 7 - restDaysPerWeek;
@@ -568,7 +557,6 @@
 
         // --- 6. GRAPHIQUE D'ALTITUDE ---
         function updateElevationChart(labels, data) {
-            // Sécurité si la bibliothèque de graphiques n'est pas encore chargée
             if (typeof Chart === 'undefined') {
                 console.warn("Le graphique est en cours de chargement...");
                 return;
@@ -625,7 +613,6 @@
 
                 let points = [];
                 
-                // Fonction récursive indestructible pour extraire les points
                 function extractPts(layer) {
                     if (layer instanceof L.Polyline) {
                         const latlngs = layer.getLatLngs();
@@ -655,7 +642,6 @@
                     const segmentDistKm = p1.distanceTo(p2) / 1000;
                     if (segmentDistKm <= 0) continue;
 
-                    // Récupération de l'altitude du point (Leaflet stocke souvent ça dans .alt)
                     const ele1 = p1.alt || p1.meta?.ele || 0;
                     const ele2 = p2.alt || p2.meta?.ele || ele1;
                     const segmentEleUp = Math.max(0, ele2 - ele1);
@@ -665,17 +651,14 @@
 
                     let stopFractions = [];
 
-                    // Règle 1: On bute sur le plafond absolu de dénivelé
                     if (newEle >= maxEle && maxEle > 0) {
                         let f = segmentEleUp > 0 ? (maxEle - dayEleUp) / segmentEleUp : 1;
                         stopFractions.push(f);
                     }
-                    // Règle 2: On bute sur le plafond absolu de distance
                     if (newDist >= maxKm && maxKm > 0) {
                         let f = segmentDistKm > 0 ? (maxKm - dayDistKm) / segmentDistKm : 1;
                         stopFractions.push(f);
                     }
-                    // Règle 3: Distance standard atteinte ET dénivelé min atteint (La journée normale)
                     if (newDist >= baseKm && newEle >= minEle) {
                         let fBaseKm = segmentDistKm > 0 ? (baseKm - dayDistKm) / segmentDistKm : 0;
                         let fMinEle = segmentEleUp > 0 ? (minEle - dayEleUp) / segmentEleUp : 0;
@@ -683,7 +666,6 @@
                         stopFractions.push(f);
                     }
 
-                    // S'il est temps de s'arrêter, on choisit la condition qui est arrivée en premier
                     if (stopFractions.length > 0) {
                         let fraction = Math.min(...stopFractions);
                         if (fraction < 0) fraction = 0;
@@ -695,7 +677,6 @@
                         const finalDayDist = dayDistKm + (segmentDistKm * fraction);
                         const finalDayEle = dayEleUp + (segmentEleUp * fraction);
 
-                        // Calcul du jour réel d'affichage en tenant compte des pauses (ex: 2 jours pause -> sauts de J5 à J8)
                         let displayDay = currentDay;
                         if (restDaysPerWeek > 0 && restDaysPerWeek < 7) {
                             const cyclingDaysPerWeek = 7 - restDaysPerWeek;
@@ -724,11 +705,9 @@
                         `);
 
                         currentDay++;
-                        // Le reliquat du segment non-utilisé sert pour le début du jour suivant
                         dayDistKm = segmentDistKm * (1 - fraction);
                         dayEleUp = segmentEleUp * (1 - fraction);
                     } else {
-                        // On continue notre route
                         dayDistKm = newDist;
                         dayEleUp = newEle;
                     }
@@ -737,7 +716,6 @@
             
             if (!hasBikeTracks) return 0;
             
-            // Si on a un reste de trajet significatif à la fin (> 100m), cela compte comme un jour de vélo supplémentaire
             if (dayDistKm > 0.1) {
                 return currentDay;
             } else {
@@ -786,7 +764,6 @@
                 return res.json();
             })
             .catch(() => {
-                // Fallback serveur FR
                 return fetch('https://overpass.openstreetmap.fr/api/interpreter', {
                     method: 'POST',
                     body: query
