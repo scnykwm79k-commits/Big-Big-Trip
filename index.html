@@ -208,6 +208,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
 
     <script>
+        // ==============================================================
+        // ⚙️ CONFIGURATION : TRACÉS CHARGÉS AUTOMATIQUEMENT
+        // Ajoutez vos fichiers GPX hébergés sur GitHub dans cette liste.
+        // ==============================================================
+        const tracesAutomatiques = [
+            // Décommentez et modifiez la ligne ci-dessous une fois votre fichier sur GitHub :
+            // { url: 'mon-voyage.gpx', nom: 'Traversée de l\'Europe', mode: 'bike' }
+        ];
+
         // 1. Initialisation de la carte Leaflet
         const map = L.map('map').setView([46.603354, 1.888334], 6); // Centré sur la France par défaut
 
@@ -367,66 +376,66 @@
             statsContainer.classList.toggle('hidden', !showStats);
         }
 
-        // 2. Gestion de l'upload de fichier GPX
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            updateStatus(`Lecture du fichier ${file.name}...`, true);
+        // Fonction centralisée pour charger un GPX (depuis un fichier uploadé ou une URL)
+        function loadGpx(gpxSource, trackName, trackMode = 'bike') {
+            updateStatus(`Chargement de ${trackName}...`, true);
             
-            // Créer une URL d'objet locale pour que Leaflet-GPX puisse la lire
-            const fileUrl = URL.createObjectURL(file);
-
-            // Options de style du tracé GPX
             const gpxOptions = {
                 async: true,
-                marker_options: {
-                    startIconUrl: '', // On cache les icones de début/fin par défaut
-                    endIconUrl: '',
-                    shadowUrl: ''
-                },
-                polyline_options: {
-                    color: '#2563eb', // Bleu Tailwind
-                    weight: 4,
-                    opacity: 0.8,
-                    lineCap: 'round'
+                marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
+                polyline_options: { 
+                    color: trackMode === 'train' ? '#9ca3af' : '#2563eb', 
+                    weight: 4, 
+                    opacity: trackMode === 'train' ? 0.6 : 0.8, 
+                    lineCap: 'round',
+                    dashArray: trackMode === 'train' ? '8, 8' : null
                 }
             };
 
-            // Charger le GPX sur la carte
-            new L.GPX(fileUrl, gpxOptions).on('loaded', function(e) {
+            new L.GPX(gpxSource, gpxOptions).on('loaded', function(e) {
                 const gpx = e.target;
                 gpxLayerGroup.addLayer(gpx);
                 
-                // Mémoriser l'objet avec son type par défaut (vélo)
                 const trackObj = {
-                    id: Date.now(),
+                    id: Date.now() + Math.floor(Math.random() * 1000), // ID unique
                     gpx: gpx,
-                    name: file.name,
-                    mode: 'bike' // Par défaut
+                    name: trackName,
+                    mode: trackMode
                 };
                 allGpxTracks.push(trackObj); 
                 
-                // Ajuster la vue de la carte sur l'ensemble des tracés
                 const bounds = gpxLayerGroup.getBounds();
-                map.fitBounds(bounds);
+                if (bounds.isValid()) map.fitBounds(bounds);
                 
-                // Afficher la liste et recalculer tout
                 renderTrackList();
                 recalculateTotals();
 
                 updateStatus(`Tracé ajouté. Vous pouvez lancer la recherche.`, false, true);
-                
-                // Afficher le conteneur de recherche de POI
                 document.getElementById('poi-search-container').classList.remove('hidden');
                 
             }).on('error', function(e) {
-                updateStatus("Erreur: Le fichier GPX est invalide ou corrompu.", false);
+                console.error("Erreur GPX:", e);
+                updateStatus(`Erreur: Impossible de lire ${trackName}.`, false);
             });
+        }
+
+        // 2. Gestion de l'upload de fichier GPX manuel
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const fileUrl = URL.createObjectURL(file);
+            loadGpx(fileUrl, file.name, 'bike');
             
-            // Réinitialiser l'input file pour permettre d'ajouter plusieurs fois de suite le même fichier si besoin
-            e.target.value = '';
+            e.target.value = ''; // Réinitialiser l'input
         });
+
+        // Lancement des traces automatiques au démarrage
+        setTimeout(() => {
+            tracesAutomatiques.forEach(trace => {
+                loadGpx(trace.url, trace.nom, trace.mode);
+            });
+        }, 500); // Petit délai pour laisser la carte se dessiner
 
         // Fonction pour extraire et aplatir les coordonnées d'un GPX
         function flattenLatLngs(latlngs) {
