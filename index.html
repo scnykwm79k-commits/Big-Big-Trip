@@ -209,6 +209,36 @@
 
     <script>
         // ==============================================================
+        // --- GESTION DU MOT DE PASSE (Déplacé ici pour plus de sécurité) ---
+        // ==============================================================
+        const authModal = document.getElementById('auth-modal');
+        const authPwd = document.getElementById('auth-pwd');
+        const authBtn = document.getElementById('auth-btn');
+        const authError = document.getElementById('auth-error');
+        
+        // ⚠️ DÉFINISSEZ VOTRE MOT DE PASSE ICI ⚠️
+        const SECRET_PASSWORD = "velo"; 
+
+        function checkPassword() {
+            if (authPwd.value === SECRET_PASSWORD) {
+                authModal.classList.add('opacity-0', 'pointer-events-none');
+                setTimeout(() => authModal.remove(), 300); // Supprime l'écran après la transition
+            } else {
+                authError.classList.remove('hidden');
+                authPwd.classList.add('border-red-500');
+                // Petite animation de secousse
+                authPwd.style.transform = 'translateX(-5px)';
+                setTimeout(() => authPwd.style.transform = 'translateX(5px)', 100);
+                setTimeout(() => authPwd.style.transform = 'translateX(0)', 200);
+            }
+        }
+
+        authBtn.addEventListener('click', checkPassword);
+        authPwd.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') checkPassword();
+        });
+
+        // ==============================================================
         // ⚙️ CONFIGURATION : TRACÉS CHARGÉS AUTOMATIQUEMENT
         // Ajoutez vos fichiers GPX hébergés sur GitHub dans cette liste.
         // ==============================================================
@@ -399,31 +429,40 @@
                 }
             };
 
-            new L.GPX(gpxSource, gpxOptions).on('loaded', function(e) {
-                const gpx = e.target;
-                gpxLayerGroup.addLayer(gpx);
-                
-                const trackObj = {
-                    id: Date.now() + Math.floor(Math.random() * 1000), // ID unique
-                    gpx: gpx,
-                    name: trackName,
-                    mode: trackMode
-                };
-                allGpxTracks.push(trackObj); 
-                
-                const bounds = gpxLayerGroup.getBounds();
-                if (bounds.isValid()) map.fitBounds(bounds);
-                
-                renderTrackList();
-                recalculateTotals();
+            try {
+                // Encode l'URL pour gérer les espaces (ex: "Big Big Trip" -> "Big%20Big%20Trip")
+                // On ne le fait pas si c'est un fichier "blob" (upload manuel)
+                const safeUrl = gpxSource.startsWith('blob:') ? gpxSource : encodeURI(gpxSource);
 
-                updateStatus(`Tracé ajouté. Vous pouvez lancer la recherche.`, false, true);
-                document.getElementById('poi-search-container').classList.remove('hidden');
-                
-            }).on('error', function(e) {
-                console.error("Erreur GPX:", e);
-                updateStatus(`Erreur: Impossible de lire ${trackName}.`, false);
-            });
+                new L.GPX(safeUrl, gpxOptions).on('loaded', function(e) {
+                    const gpx = e.target;
+                    gpxLayerGroup.addLayer(gpx);
+                    
+                    const trackObj = {
+                        id: Date.now() + Math.floor(Math.random() * 1000), // ID unique
+                        gpx: gpx,
+                        name: trackName,
+                        mode: trackMode
+                    };
+                    allGpxTracks.push(trackObj); 
+                    
+                    const bounds = gpxLayerGroup.getBounds();
+                    if (bounds.isValid()) map.fitBounds(bounds);
+                    
+                    renderTrackList();
+                    recalculateTotals();
+
+                    updateStatus(`Tracé ajouté. Vous pouvez lancer la recherche.`, false, true);
+                    document.getElementById('poi-search-container').classList.remove('hidden');
+                    
+                }).on('error', function(e) {
+                    console.error("Erreur GPX:", e);
+                    updateStatus(`Erreur: Impossible de lire ${trackName}. Vérifiez qu'il est bien sur GitHub.`, false);
+                });
+            } catch (error) {
+                console.error("Erreur critique de chargement GPX :", error);
+                updateStatus(`Erreur de lien pour ${trackName}.`, false);
+            }
         }
 
         // 2. Gestion de l'upload de fichier GPX manuel
@@ -830,34 +869,6 @@
                 updateStatus(`Succès ! ${newPoiCount} nouveaux lieux ajoutés.`, false, true);
             }
         }
-
-        // --- GESTION DU MOT DE PASSE ---
-        const authModal = document.getElementById('auth-modal');
-        const authPwd = document.getElementById('auth-pwd');
-        const authBtn = document.getElementById('auth-btn');
-        const authError = document.getElementById('auth-error');
-        
-        // ⚠️ DÉFINISSEZ VOTRE MOT DE PASSE ICI ⚠️
-        const SECRET_PASSWORD = "velo"; 
-
-        function checkPassword() {
-            if (authPwd.value === SECRET_PASSWORD) {
-                authModal.classList.add('opacity-0', 'pointer-events-none');
-                setTimeout(() => authModal.remove(), 300); // Supprime l'écran après la transition
-            } else {
-                authError.classList.remove('hidden');
-                authPwd.classList.add('border-red-500');
-                // Petite animation de secousse
-                authPwd.style.transform = 'translateX(-5px)';
-                setTimeout(() => authPwd.style.transform = 'translateX(5px)', 100);
-                setTimeout(() => authPwd.style.transform = 'translateX(0)', 200);
-            }
-        }
-
-        authBtn.addEventListener('click', checkPassword);
-        authPwd.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') checkPassword();
-        });
 
         // --- GESTION DE LA MÉTÉO (Open-Meteo API gratuite) ---
         const weatherBtn = document.getElementById('weather-btn');
