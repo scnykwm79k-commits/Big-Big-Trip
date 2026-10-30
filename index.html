@@ -500,10 +500,13 @@
             const eleMin = parseFloat(inputEleMin.value) || 300;
             const eleMax = parseFloat(inputEleMax.value) || 1300;
             const restDaysPerWeek = parseFloat(inputRestDays.value) || 0;
+            
+            // On calcule d'abord les étapes réelles avec l'algorithme pour avoir le vrai nombre de jours de vélo
+            const totalCyclingDays = drawMilestones(kmPerDay, kmMax, eleMin, eleMax);
+            
             const cyclingDaysPerWeek = 7 - restDaysPerWeek;
             
-            if (totalBikeDist > 0 && cyclingDaysPerWeek > 0) {
-                const totalCyclingDays = totalBikeDist / kmPerDay;
+            if (totalCyclingDays > 0 && cyclingDaysPerWeek > 0) {
                 const weeksNeeded = totalCyclingDays / cyclingDaysPerWeek;
                 const totalDays = weeksNeeded * 7;
                 document.getElementById('stat-days').innerText = Math.ceil(totalDays) + ' jours';
@@ -511,7 +514,6 @@
                 document.getElementById('stat-days').innerText = '0 jours';
             }
 
-            drawMilestones(kmPerDay, kmMax, eleMin, eleMax);
             updateElevationChart(combinedLabels, combinedElevationData);
         }
 
@@ -561,14 +563,16 @@
         // --- 7. JALONS KILOMÉTRIQUES (ÉTAPES) ---
         function drawMilestones(baseKm, maxKm, minEle, maxEle) {
             milestonesLayerGroup.clearLayers();
-            if (baseKm <= 0 || allGpxTracks.length === 0) return;
+            if (baseKm <= 0 || allGpxTracks.length === 0) return 0;
 
             let currentDay = 1;
             let dayDistKm = 0;
             let dayEleUp = 0;
+            let hasBikeTracks = false;
 
             allGpxTracks.forEach(t => {
                 if (t.mode === 'train') return; 
+                hasBikeTracks = true;
 
                 let points = [];
                 
@@ -672,6 +676,15 @@
                     }
                 }
             });
+            
+            if (!hasBikeTracks) return 0;
+            
+            // Si on a un reste de trajet significatif à la fin (> 100m), cela compte comme un jour de vélo supplémentaire
+            if (dayDistKm > 0.1) {
+                return currentDay;
+            } else {
+                return Math.max(1, currentDay - 1);
+            }
         }
 
         // --- 8. RECHERCHE DE POI (API OVERPASS) ---
