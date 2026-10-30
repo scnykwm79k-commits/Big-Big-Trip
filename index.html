@@ -176,6 +176,7 @@
         const authError = document.getElementById('auth-error');
 
         let initialLoadedCount = 0;
+        let isInitialLoadingFinished = false; // Verrou de sécurité pour éviter les doubles lancements
 
         function checkPassword() {
             if (authPwd.value === SECRET_PASSWORD) {
@@ -197,12 +198,24 @@
                 finishInitialLoading();
                 return;
             }
+
+            // CHRONOMÈTRE DE SÉCURITÉ : Déverrouillage forcé après 8 secondes !
+            setTimeout(() => {
+                if (!isInitialLoadingFinished) {
+                    console.warn("Temps de chargement trop long. Déverrouillage de sécurité activé !");
+                    finishInitialLoading();
+                }
+            }, 8000);
+
             tracesAutomatiques.forEach((trace, index) => {
                 loadGpx(trace.url, trace.nom, trace.mode, index, true);
             });
         }
 
         function finishInitialLoading() {
+            if (isInitialLoadingFinished) return; // Si déjà déverrouillé par le chrono, on stop.
+            isInitialLoadingFinished = true;
+
             authModal.style.display = 'none'; // Disparition de l'écran de chargement
             
             allGpxTracks.sort((a, b) => a.order - b.order);
@@ -292,13 +305,13 @@
 
             // Fonction sécurisée pour faire avancer le chargement
             function handleInitialProgress() {
-                if (isInitial) {
+                if (isInitial && !isInitialLoadingFinished) {
                     initialLoadedCount++;
                     const modalTitle = document.querySelector('#auth-modal h2');
                     if (modalTitle) {
                         modalTitle.innerText = `Chargement... (${initialLoadedCount}/${tracesAutomatiques.length})`;
                     }
-                    // Déverrouillage garanti
+                    // Déverrouillage garanti si on atteint le bon compte avant le chrono
                     if (initialLoadedCount >= tracesAutomatiques.length) {
                         finishInitialLoading();
                     }
