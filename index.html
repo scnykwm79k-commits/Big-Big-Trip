@@ -67,14 +67,26 @@
             <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
                 <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">⏱️ Planification</h3>
                 
-                <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="grid grid-cols-2 gap-2 mb-4">
                     <div>
-                        <label class="text-xs text-gray-500 font-bold uppercase" title="Règle d'or: 100m de dénivelé = 1km d'effort supplémentaire.">Effort (km/j) ℹ️</label>
-                        <input type="number" id="plan-km-day" value="80" class="w-full p-2 border rounded mt-1 bg-white font-bold text-blue-600">
+                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="Kilométrage idéal">Dist. Cible (km)</label>
+                        <input type="number" id="plan-km-day" value="80" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
                     </div>
                     <div>
-                        <label class="text-xs text-gray-500 font-bold uppercase">Pauses (j/sem)</label>
-                        <input type="number" id="plan-rest-days" value="2" class="w-full p-2 border rounded mt-1 bg-white font-bold text-blue-600">
+                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="Limite absolue à ne jamais dépasser">Dist. Max (km) ℹ️</label>
+                        <input type="number" id="plan-km-max" value="120" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="On rallonge l'étape si on n'a pas fait ce dénivelé">D+ Min (m) ℹ️</label>
+                        <input type="number" id="plan-ele-min" value="300" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="Limite absolue de grimpe par jour">D+ Max (m) ℹ️</label>
+                        <input type="number" id="plan-ele-max" value="1300" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="text-[10px] text-gray-500 font-bold uppercase">Jours de pause (par sem)</label>
+                        <input type="number" id="plan-rest-days" value="2" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
                     </div>
                 </div>
 
@@ -289,6 +301,9 @@
         const btnSearchPoi = document.getElementById('btn-search-poi');
 
         const inputKmDay = document.getElementById('plan-km-day');
+        const inputKmMax = document.getElementById('plan-km-max');
+        const inputEleMin = document.getElementById('plan-ele-min');
+        const inputEleMax = document.getElementById('plan-ele-max');
         const inputRestDays = document.getElementById('plan-rest-days');
 
         function updateStatus(msg, isLoading = false, isSuccess = false) {
@@ -436,6 +451,9 @@
         };
 
         inputKmDay.addEventListener('input', recalculateTotals);
+        inputKmMax.addEventListener('input', recalculateTotals);
+        inputEleMin.addEventListener('input', recalculateTotals);
+        inputEleMax.addEventListener('input', recalculateTotals);
         inputRestDays.addEventListener('input', recalculateTotals);
 
         function recalculateTotals() {
@@ -478,6 +496,9 @@
 
             // Calcul du temps
             const kmPerDay = parseFloat(inputKmDay.value) || 80;
+            const kmMax = parseFloat(inputKmMax.value) || 120;
+            const eleMin = parseFloat(inputEleMin.value) || 300;
+            const eleMax = parseFloat(inputEleMax.value) || 1300;
             const restDaysPerWeek = parseFloat(inputRestDays.value) || 0;
             const cyclingDaysPerWeek = 7 - restDaysPerWeek;
             
@@ -490,7 +511,7 @@
                 document.getElementById('stat-days').innerText = '0 jours';
             }
 
-            drawMilestones(kmPerDay);
+            drawMilestones(kmPerDay, kmMax, eleMin, eleMax);
             updateElevationChart(combinedLabels, combinedElevationData);
         }
 
@@ -538,11 +559,9 @@
         }
 
         // --- 7. JALONS KILOMÉTRIQUES (ÉTAPES) ---
-        function drawMilestones(kmPerDay) {
+        function drawMilestones(baseKm, maxKm, minEle, maxEle) {
             milestonesLayerGroup.clearLayers();
-            if (kmPerDay <= 0 || allGpxTracks.length === 0) return;
-
-            const maxElePerDay = 1300; // Règle d'or : 1300m D+ max par jour
+            if (baseKm <= 0 || allGpxTracks.length === 0) return;
 
             let currentDay = 1;
             let dayDistKm = 0;
@@ -588,15 +607,32 @@
                     const ele2 = p2.alt || p2.meta?.ele || ele1;
                     const segmentEleUp = Math.max(0, ele2 - ele1);
 
-                    // Règle d'or : On s'arrête si on dépasse le kilométrage OU le dénivelé max
-                    if (dayDistKm + segmentDistKm >= kmPerDay || dayEleUp + segmentEleUp >= maxElePerDay) {
-                        
-                        // Calcul de la fraction exacte du segment où on s'arrête
-                        let fractionDist = (kmPerDay - dayDistKm) / segmentDistKm;
-                        let fractionEle = segmentEleUp > 0 ? (maxElePerDay - dayEleUp) / segmentEleUp : 1;
-                        
-                        // On prend la première limite atteinte (la plus petite fraction)
-                        let fraction = Math.min(fractionDist, fractionEle);
+                    let newDist = dayDistKm + segmentDistKm;
+                    let newEle = dayEleUp + segmentEleUp;
+
+                    let stopFractions = [];
+
+                    // Règle 1: On bute sur le plafond absolu de dénivelé
+                    if (newEle >= maxEle && maxEle > 0) {
+                        let f = segmentEleUp > 0 ? (maxEle - dayEleUp) / segmentEleUp : 1;
+                        stopFractions.push(f);
+                    }
+                    // Règle 2: On bute sur le plafond absolu de distance
+                    if (newDist >= maxKm && maxKm > 0) {
+                        let f = segmentDistKm > 0 ? (maxKm - dayDistKm) / segmentDistKm : 1;
+                        stopFractions.push(f);
+                    }
+                    // Règle 3: Distance standard atteinte ET dénivelé min atteint (La journée normale)
+                    if (newDist >= baseKm && newEle >= minEle) {
+                        let fBaseKm = segmentDistKm > 0 ? (baseKm - dayDistKm) / segmentDistKm : 0;
+                        let fMinEle = segmentEleUp > 0 ? (minEle - dayEleUp) / segmentEleUp : 0;
+                        let f = Math.max(fBaseKm, fMinEle);
+                        stopFractions.push(f);
+                    }
+
+                    // S'il est temps de s'arrêter, on choisit la condition qui est arrivée en premier
+                    if (stopFractions.length > 0) {
+                        let fraction = Math.min(...stopFractions);
                         if (fraction < 0) fraction = 0;
                         if (fraction > 1) fraction = 1;
 
@@ -630,8 +666,9 @@
                         dayDistKm = segmentDistKm * (1 - fraction);
                         dayEleUp = segmentEleUp * (1 - fraction);
                     } else {
-                        dayDistKm += segmentDistKm;
-                        dayEleUp += segmentEleUp;
+                        // On continue notre route
+                        dayDistKm = newDist;
+                        dayEleUp = newEle;
                     }
                 }
             });
