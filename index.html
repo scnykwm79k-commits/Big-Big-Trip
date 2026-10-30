@@ -242,7 +242,7 @@
             { url: '2026-10-20_3328510323_Big Big Trip - Dubrovnik à Olympe - komoot.gpx', nom: 'Dubrovnik-Olympe', mode: 'bike' },
             { url: '2026-10-20_3342529635_Big Big Trip - Olympe à Istambul - komoot.gpx', nom: 'Olympe-Istambul', mode: 'bike' },
             { url: '2026-10-20_3358792947_Big Big Trip - Istanbul à Konya - komoot.gpx', nom: 'Istambul-Konya', mode: 'bike' },
-            { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' },
+            { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' }
         ];
 
         // --- 3. INITIALISATION DE LA CARTE ---
@@ -290,6 +290,21 @@
                 }
             };
 
+            // Fonction sécurisée pour faire avancer le chargement
+            function handleInitialProgress() {
+                if (isInitial) {
+                    initialLoadedCount++;
+                    const modalTitle = document.querySelector('#auth-modal h2');
+                    if (modalTitle) {
+                        modalTitle.innerText = `Chargement... (${initialLoadedCount}/${tracesAutomatiques.length})`;
+                    }
+                    // Déverrouillage garanti
+                    if (initialLoadedCount >= tracesAutomatiques.length) {
+                        finishInitialLoading();
+                    }
+                }
+            }
+
             try {
                 // Encode l'URL pour gérer les espaces des fichiers sur GitHub
                 const safeUrl = gpxSource.startsWith('blob:') ? gpxSource : encodeURI(gpxSource);
@@ -308,34 +323,7 @@
                     allGpxTracks.push(trackObj); 
                     
                     if (isInitial) {
-                        // Au démarrage : on met juste à jour le compteur sur l'écran de chargement
-                        initialLoadedCount++;
-                        document.querySelector('#auth-modal h2').innerText = `Chargement... (${initialLoadedCount}/${tracesAutomatiques.length})`;
-                        
-                        if (initialLoadedCount === tracesAutomatiques.length) {
-                            finishInitialLoading(); // On déverrouille quand tout est là !
-                        }
-                    } else {
-                        // Si c'est un fichier ajouté MANUELLEMENT plus tard
-                        allGpxTracks.sort((a, b) => a.order - b.order);
-                        const bounds = gpxLayerGroup.getBounds();
-                        if (bounds.isValid()) map.fitBounds(bounds);
-                        
-                        renderTrackList();
-                        document.getElementById('poi-search-container').classList.remove('hidden');
-                        updateStatus(`Tracé ajouté.`, false, true);
-                        
-                        try { recalculateTotals(); } catch(err) { console.error(err); }
-                    }
-
-                }).on('error', function(e) {
-                    console.error("Erreur GPX:", e);
-                    updateStatus(`Erreur: Impossible de lire ${trackName}.`, false);
-                    
-                    // Si un fichier est introuvable, on continue quand même le chargement des autres
-                    if (isInitial) {
-                        initialLoadedCount++;
-                        if (initialLoadedCount === tracesAutomatiques.length) finishInitialLoading();
+                        handleInitialProgress();
                     } else {
                         // Si c'est un fichier ajouté MANUELLEMENT plus tard
                         allGpxTracks.sort((a, b) => a.order - b.order);
@@ -350,24 +338,21 @@
                     }
 
                 }).on('error', function(e) {
-                    console.warn(`Avertissement GPX: Impossible de lire ${trackName} (normal si le fichier n'est pas trouvé).`);
+                    console.warn(`Avertissement GPX: Impossible de lire ${trackName}.`);
                     updateStatus(`Erreur: Impossible de lire ${trackName}.`, false);
                     
-                    // Si un fichier est introuvable, on continue quand même le chargement des autres
                     if (isInitial) {
-                        initialLoadedCount++;
-                        if (initialLoadedCount === tracesAutomatiques.length) finishInitialLoading();
+                        handleInitialProgress();
+                    } else {
+                        try { recalculateTotals(); } catch(err) { console.warn(err); }
                     }
                 });
             } catch (error) {
                 console.warn(`Fichier ignoré : ${trackName} n'est pas accessible dans cet environnement de test.`);
                 updateStatus(`Erreur de lien pour ${trackName}.`, false);
                 
-                // CORRECTION CRUCIALE : Si l'URL fait planter l'application (ex: sur l'environnement de test), 
-                // on indique quand même que cette étape est passée pour ne pas bloquer l'écran de chargement.
                 if (isInitial) {
-                    initialLoadedCount++;
-                    if (initialLoadedCount === tracesAutomatiques.length) finishInitialLoading();
+                    handleInitialProgress();
                 }
             }
         }
