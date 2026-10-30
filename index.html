@@ -274,11 +274,18 @@
                     if (bounds.isValid()) map.fitBounds(bounds);
                     
                     renderTrackList();
-                    recalculateTotals();
 
+                    // 1. On affiche le menu de recherche de POI immédiatement pour qu'il ne disparaisse jamais
                     updateStatus(`Tracé ajouté. Vous pouvez lancer la recherche.`, false, true);
                     document.getElementById('poi-search-container').classList.remove('hidden');
                     
+                    // 2. On protège les calculs pour ne pas bloquer l'interface en cas de GPX complexe
+                    try {
+                        recalculateTotals();
+                    } catch(err) {
+                        console.error("Erreur lors des calculs d'étapes :", err);
+                    }
+
                 }).on('error', function(e) {
                     console.error("Erreur GPX:", e);
                     updateStatus(`Erreur: Impossible de lire ${trackName}. Vérifiez qu'il est bien sur GitHub.`, false);
@@ -407,6 +414,12 @@
 
         // --- 6. GRAPHIQUE D'ALTITUDE ---
         function updateElevationChart(labels, data) {
+            // Sécurité si la bibliothèque de graphiques n'est pas encore chargée
+            if (typeof Chart === 'undefined') {
+                console.warn("Le graphique est en cours de chargement...");
+                return;
+            }
+
             const ctx = document.getElementById('elevationChart').getContext('2d');
             
             if (elevationChartObj) {
@@ -453,28 +466,38 @@
             allGpxTracks.forEach(t => {
                 if (t.mode === 'train') return; 
 
-                const layers = t.gpx.getLayers();
-                if (!layers || layers.length === 0) return;
-
                 let points = [];
-                layers[0].eachLayer(function (layer) {
+                
+                // Fonction récursive indestructible pour fouiller n'importe quelle structure Komoot
+                function extractPts(layer) {
                     if (layer instanceof L.Polyline) {
                         const latlngs = layer.getLatLngs();
-                        if (Array.isArray(latlngs[0])) {
-                            latlngs.forEach(arr => points = points.concat(arr));
-                        } else {
-                            points = points.concat(latlngs);
-                        }
+                        const flatten = (arr) => {
+                            arr.forEach(item => {
+                                if (Array.isArray(item)) flatten(item);
+                                else if (item.lat && item.lng) points.push(item);
+                            });
+                        };
+                        flatten(latlngs);
                     }
-                });
+                    if (layer && typeof layer.eachLayer === 'function') {
+                        layer.eachLayer(extractPts);
+                    }
+                }
+                
+                extractPts(t.gpx);
 
                 if (points.length < 2) return;
 
                 let officialGpxDistance = t.gpx.get_distance(); 
+                if (!officialGpxDistance || officialGpxDistance <= 0) return;
+
                 let geomDistance = 0;
                 for (let i = 0; i < points.length - 1; i++) {
                     geomDistance += points[i].distanceTo(points[i+1]);
                 }
+                
+                if (geomDistance <= 0) return; // Sécurité division par zéro
                 const ratio = officialGpxDistance / geomDistance;
 
                 for (let i = 0; i < points.length - 1; i++) {
