@@ -155,10 +155,6 @@
             </div>
 
         </div>
-
-        <div id="status-bar" class="p-4 bg-gray-100 text-sm text-gray-600 border-t border-gray-200">
-            Prêt à charger la carte...
-        </div>
     </div>
 
     <!-- MAIN AREA (Map + Chart) -->
@@ -188,6 +184,11 @@
                 <div class="w-6 h-6 border-2 border-gray-600/50 rounded-full flex items-center justify-center shadow-sm">
                     <div class="w-1.5 h-1.5 bg-red-500 rounded-full shadow-sm"></div>
                 </div>
+            </div>
+
+            <!-- NOUVEAU : Message de statut flottant (Toast) -->
+            <div id="status-toast" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[500] bg-gray-900/80 text-white px-5 py-2 rounded-full shadow-lg text-sm backdrop-blur transition-opacity duration-500 opacity-0 pointer-events-none text-center whitespace-nowrap">
+                Prêt à charger la carte...
             </div>
         </div>
         
@@ -305,7 +306,9 @@
         let elevationChartObj = null;
 
         // UI Elements
-        const statusBar = document.getElementById('status-bar');
+        const statusToast = document.getElementById('status-toast');
+        let statusTimeout;
+        
         const fileInput = document.getElementById('gpx-input');
         const trackListEl = document.getElementById('track-list');
         const btnSearchPoi = document.getElementById('btn-search-poi');
@@ -338,7 +341,17 @@
 
         function updateStatus(msg, isLoading = false, isSuccess = false) {
             let icon = isLoading ? '⏳' : (isSuccess ? '✅' : 'ℹ️');
-            statusBar.innerHTML = `${icon} ${msg}`;
+            statusToast.innerHTML = `${icon} ${msg}`;
+            statusToast.classList.remove('opacity-0');
+            
+            clearTimeout(statusTimeout);
+            
+            // Auto-masquage après 3.5 secondes si ce n'est pas un chargement
+            if (!isLoading) {
+                statusTimeout = setTimeout(() => {
+                    statusToast.classList.add('opacity-0');
+                }, 3500);
+            }
         }
 
         // --- 4. CHARGEMENT DES GPX ---
