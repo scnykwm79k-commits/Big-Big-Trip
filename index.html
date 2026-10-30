@@ -175,15 +175,52 @@
         const authBtn = document.getElementById('auth-btn');
         const authError = document.getElementById('auth-error');
 
+        let initialLoadedCount = 0;
+
         function checkPassword() {
             if (authPwd.value === SECRET_PASSWORD) {
-                authModal.style.display = 'none'; // Cache la modale
-                // Si la carte n'a pas fini de charger, on force un redimensionnement
-                setTimeout(() => map.invalidateSize(), 200); 
+                // On cache les champs et on affiche un message de chargement
+                authPwd.style.display = 'none';
+                authBtn.style.display = 'none';
+                authError.style.display = 'none';
+                document.querySelector('#auth-modal h2').innerText = "Chargement des tracés...";
+                
+                startInitialLoading();
             } else {
                 authError.classList.remove('hidden');
                 authPwd.value = '';
             }
+        }
+
+        function startInitialLoading() {
+            if (tracesAutomatiques.length === 0) {
+                finishInitialLoading();
+                return;
+            }
+            tracesAutomatiques.forEach((trace, index) => {
+                loadGpx(trace.url, trace.nom, trace.mode, index, true);
+            });
+        }
+
+        function finishInitialLoading() {
+            authModal.style.display = 'none'; // Disparition de l'écran de chargement
+            
+            allGpxTracks.sort((a, b) => a.order - b.order);
+            renderTrackList();
+            
+            // On laisse le temps à la carte de s'afficher avant de faire les calculs lourds
+            setTimeout(() => {
+                map.invalidateSize();
+                const bounds = gpxLayerGroup.getBounds();
+                if (bounds.isValid()) map.fitBounds(bounds);
+                
+                try { recalculateTotals(); } catch(e) { console.error("Erreur calcul:", e); }
+                
+                if (allGpxTracks.length > 0) {
+                    document.getElementById('poi-search-container').classList.remove('hidden');
+                    updateStatus(`Tous les tracés sont prêts.`, false, true);
+                }
+            }, 200);
         }
 
         authBtn.addEventListener('click', checkPassword);
@@ -212,7 +249,7 @@
             attribution: 'Tiles &copy; Esri'
         }).addTo(map);
 
-        const gpxLayerGroup = L.layerGroup().addTo(map);
+        const gpxLayerGroup = L.featureGroup().addTo(map);
         const poiLayerGroup = L.layerGroup().addTo(map);
         const milestonesLayerGroup = L.layerGroup().addTo(map);
         let userLocationMarker = null;
@@ -235,7 +272,7 @@
         }
 
         // --- 4. CHARGEMENT DES GPX ---
-        function loadGpx(gpxSource, trackName, trackMode = 'bike', orderIndex = 999) {
+        function loadGpx(gpxSource, trackName, trackMode = 'bike', orderIndex = 999, isInitial = false) {
             updateStatus(`Chargement de ${trackName}...`, true);
             
             const gpxOptions = {
@@ -267,32 +304,47 @@
                     };
                     allGpxTracks.push(trackObj); 
                     
-                    // Tri pour respecter l'ordre initial
-                    allGpxTracks.sort((a, b) => a.order - b.order);
-                    
-                    const bounds = gpxLayerGroup.getBounds();
-                    if (bounds.isValid()) map.fitBounds(bounds);
-                    
-                    renderTrackList();
-
-                    // 1. On affiche le menu de recherche de POI immédiatement pour qu'il ne disparaisse jamais
-                    updateStatus(`Tracé ajouté. Vous pouvez lancer la recherche.`, false, true);
-                    document.getElementById('poi-search-container').classList.remove('hidden');
-                    
-                    // 2. On protège les calculs pour ne pas bloquer l'interface en cas de GPX complexe
-                    try {
-                        recalculateTotals();
-                    } catch(err) {
-                        console.error("Erreur lors des calculs d'étapes :", err);
+                    if (isInitial) {
+                        // Au démarrage : on met juste à jour le compteur sur l'écran de chargement
+                        initialLoadedCount++;
+                        document.querySelector('#auth-modal h2').innerText = `Chargement... (${initialLoadedCount}/${tracesAutomatiques.length})`;
+                        
+                        if (initialLoadedCount === tracesAutomatiques.length) {
+                            finishInitialLoading(); // On déverrouille quand tout est là !
+                        }
+                    } else {
+                        // Si c'est un fichier ajouté MANUELLEMENT plus tard
+                        allGpxTracks.sort((a, b) => a.order - b.order);
+                        const bounds = gpxLayerGroup.getBounds();
+                        if (bounds.isValid()) map.fitBounds(bounds);
+                        
+                        renderTrackList();
+                        document.getElementById('poi-search-container').classList.remove('hidden');
+                        updateStatus(`Tracé ajouté.`, false, true);
+                        
+                        try { recalculateTotals(); } catch(err) { console.error(err); }
                     }
 
                 }).on('error', function(e) {
                     console.error("Erreur GPX:", e);
-                    updateStatus(`Erreur: Impossible de lire ${trackName}. Vérifiez qu'il est bien sur GitHub.`, false);
+                    updateStatus(`Erreur: Impossible de lire ${trackName}.`, false);
+                    
+                    // Si un fichier est introuvable, on continue quand même le chargement des autres
+                    if (isInitial) {
+                        initialLoadedCount++;
+                        if (initialLoadedCount === tracesAutomatiques.length) finishInitialLoading();
+                    }
                 });
             } catch (error) {
                 console.error("Erreur critique de chargement GPX :", error);
                 updateStatus(`Erreur de lien pour ${trackName}.`, false);
+                
+                // CORRECTION CRUCIALE : Si l'URL fait planter l'application (ex: sur l'environnement de test), 
+                // on indique quand même que cette étape est passée pour ne pas bloquer l'écran de chargement.
+                if (isInitial) {
+                    initialLoadedCount++;
+                    if (initialLoadedCount === tracesAutomatiques.length) finishInitialLoading();
+                }
             }
         }
 
@@ -300,16 +352,9 @@
             const file = e.target.files[0];
             if (!file) return;
             const fileUrl = URL.createObjectURL(file);
-            loadGpx(fileUrl, file.name, 'bike', 1000 + allGpxTracks.length);
+            loadGpx(fileUrl, file.name, 'bike', 1000 + allGpxTracks.length, false);
             e.target.value = ''; 
         });
-
-        setTimeout(() => {
-            tracesAutomatiques.forEach((trace, index) => {
-                loadGpx(trace.url, trace.nom, trace.mode, index);
-            });
-        }, 500);
-
 
         // --- 5. INTERFACE ET CALCULS ---
         function renderTrackList() {
@@ -373,13 +418,19 @@
 
             allGpxTracks.forEach(t => {
                 if (t.mode === 'bike') {
-                    const distKm = t.gpx.get_distance() / 1000;
+                    // SÉCURITÉ : On protège tous les calculs. Si une donnée manque (ex: pas d'altitude), on met 0 et on ne plante pas.
+                    let distKm = 0;
+                    try { distKm = (t.gpx.get_distance() || 0) / 1000; } catch(e) {}
+                    
                     totalBikeDist += distKm;
-                    totalEleUp += t.gpx.get_elevation_gain();
-                    totalEleDown += t.gpx.get_elevation_loss();
+                    
+                    try { totalEleUp += t.gpx.get_elevation_gain() || 0; } catch(e) {}
+                    try { totalEleDown += t.gpx.get_elevation_loss() || 0; } catch(e) {}
 
-                    // Récupération des données d'altitude pour le graphique
-                    const eleData = t.gpx.get_elevation_data();
+                    // Récupération des données d'altitude pour le graphique (avec sécurité)
+                    let eleData = [];
+                    try { eleData = t.gpx.get_elevation_data() || []; } catch(e) {}
+
                     if (eleData && eleData.length > 0) {
                         eleData.forEach(point => {
                             combinedLabels.push((globalDistanceForChart + point[0]).toFixed(1));
@@ -475,7 +526,14 @@
                         const flatten = (arr) => {
                             arr.forEach(item => {
                                 if (Array.isArray(item)) flatten(item);
-                                else if (item.lat && item.lng) points.push(item);
+                                else if (item && item.lat && item.lng) {
+                                    // S'assurer que le point a bien la fonction de calcul de distance
+                                    if (typeof item.distanceTo !== 'function') {
+                                        points.push(L.latLng(item.lat, item.lng));
+                                    } else {
+                                        points.push(item);
+                                    }
+                                }
                             });
                         };
                         flatten(latlngs);
@@ -489,7 +547,9 @@
 
                 if (points.length < 2) return;
 
-                let officialGpxDistance = t.gpx.get_distance(); 
+                let officialGpxDistance = 0;
+                try { officialGpxDistance = t.gpx.get_distance(); } catch(e) {}
+                
                 if (!officialGpxDistance || officialGpxDistance <= 0) return;
 
                 let geomDistance = 0;
