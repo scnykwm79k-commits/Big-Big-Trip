@@ -200,7 +200,6 @@
 
         // === VARIABLES GLOBALES ===
         const tracesAutomatiques = [
-            // RECOPIEZ VOS 9 FICHIERS ICI COMME AVANT, PAR EXEMPLE :
             { url: '2026-08-12_3192717650_Big Big Trip - Annecy to Zurich - komoot.gpx', nom: 'Annecy-Zurich', mode: 'bike' },
             { url: '2026-10-20_3192771285_Big Big Trip - Zurich to Venise - komoot.gpx', nom: 'Zurich-Venise', mode: 'bike' },
             { url: '2026-10-30_3372877022_TRAIN VENISE - komoot (1).gpx', nom: 'Train-Italie', mode: 'train' },
@@ -288,8 +287,18 @@
                 setTimeout(() => { if (!isInitialLoadingFinished) forceUnlockMap(); }, 8000);
                 
                 tracesAutomatiques.forEach(file => {
-                    // On utilise file.url au lieu de file tout court
-                    const gpxLayer = new L.GPX(file.url, { async: true, polyline_options: { color: 'blue', weight: 4 } });
+                    // On utilise file.url pour trouver le fichier
+                    // On utilise file.mode pour changer la couleur (train = rouge pointillé, vélo = bleu continu)
+                    const isTrain = file.mode === 'train';
+                    const gpxLayer = new L.GPX(file.url, { 
+                        async: true, 
+                        polyline_options: { 
+                            color: isTrain ? '#ef4444' : '#3b82f6', 
+                            weight: isTrain ? 3 : 4,
+                            dashArray: isTrain ? '10, 10' : ''
+                        } 
+                    });
+                    
                     gpxLayer.on('loaded', (e) => { handleInitialProgress(); });
                     gpxLayer.on('error', (e) => { console.warn("Fichier introuvable/erreur :", file.url); handleInitialProgress(); });
                     gpxLayer.addTo(gpxLayerGroup);
