@@ -559,13 +559,22 @@
             chartLatLngs = [];
             let cumulativeDist = 0;
             
-            let samplingRate = Math.max(1, Math.floor(points.length / 200));
+            // 1. On ignore complètement les portions en train pour le graphique
+            const bikePoints = points.filter(p => p.tripMode !== 'train');
             
-            for (let i = 0; i < points.length; i += samplingRate) {
-                if (i > 0) cumulativeDist += (map.distance(points[i-1], points[i]) / 1000) * samplingRate;
+            let samplingRate = Math.max(1, Math.floor(bikePoints.length / 200));
+            
+            for (let i = 0; i < bikePoints.length; i += samplingRate) {
+                if (i > 0) {
+                    const d = map.distance(bikePoints[i-1], bikePoints[i]) / 1000;
+                    // On ignore les gros sauts (ex: le trajet en train) pour ne pas fausser l'axe X
+                    if (d < 20) {
+                        cumulativeDist += d * samplingRate;
+                    }
+                }
                 distances.push(cumulativeDist.toFixed(1));
-                chartLatLngs.push(points[i]);
-                elevations.push(points[i].meta && points[i].meta.ele ? points[i].meta.ele : 0);
+                chartLatLngs.push(bikePoints[i]);
+                elevations.push(bikePoints[i].meta && bikePoints[i].meta.ele ? bikePoints[i].meta.ele : 0);
             }
 
             elevChart = new Chart(ctx, {
@@ -579,22 +588,27 @@
                         backgroundColor: 'rgba(59, 130, 246, 0.2)',
                         fill: true,
                         pointRadius: 0,
-                        pointHoverRadius: 5
+                        pointHoverRadius: 6,
+                        pointHoverBackgroundColor: '#1e3a8a' // Plus sombre au survol
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    // 2. L'effet "Aimant" : s'aligne automatiquement sur le point le plus proche de l'axe X
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     onHover: (event, chartElement) => {
-                        // Change le curseur de la souris pour indiquer que c'est interactif
-                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                        event.native.target.style.cursor = chartElement.length ? 'pointer' : 'default';
                     },
                     onClick: (e, activeEls) => {
                         if (activeEls.length > 0) {
                             const index = activeEls[0].index;
                             const targetLatLng = chartLatLngs[index];
                             if (targetLatLng) {
-                                // Zoom niveau 9 = Vue d'environ 50km de rayon (100km de large)
+                                // Zoom niveau 9 = Vue d'environ 50km de rayon
                                 map.flyTo(targetLatLng, 9, { duration: 1.5 });
                             }
                         }
@@ -603,7 +617,16 @@
                         x: { display: false },
                         y: { beginAtZero: true }
                     },
-                    plugins: { legend: { display: false } }
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y + ' m (Cliquez pour zoomer)';
+                                }
+                            }
+                        }
+                    }
                 }
             });
         }
