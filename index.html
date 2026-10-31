@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Big Big Trip</title>
+    <title>Big Big Trip</title> 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -178,7 +178,11 @@
             <p id="total-time" class="text-xl font-bold text-green-600">0 jours</p>
         </div>
 
-        <button id="btn-share" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded mb-2 transition">🔗 Copier le lien Visiteur</button>
+        <button id="btn-share" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded mb-6 transition">🔗 Copier le lien Visiteur</button>
+
+        <h2 class="text-2xl font-bold mb-4 text-blue-600">Outils Locaux</h2>
+        <button id="btn-weather" class="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 font-semibold py-2 rounded mb-4 transition">🌤️ Météo au centre</button>
+        <button id="btn-pois" class="w-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold py-2 rounded mb-6 transition">🏕️ Campings & Eau (Zoomer avant)</button>
     </div>
 
     <!-- Carte Leaflet -->
@@ -286,6 +290,7 @@
         }).addTo(map);
 
         const gpxLayerGroup = L.featureGroup().addTo(map);
+        const poiLayerGroup = L.featureGroup().addTo(map); // Groupe pour les campings et points d'eau
 
         // === GESTION MOBILE ET VISITEUR ===
         const sidebar = document.getElementById('sidebar');
@@ -424,6 +429,84 @@
             document.execCommand('copy');
             document.body.removeChild(dummy);
             updateStatus("Lien Visiteur copié !");
+        });
+
+        // RECHERCHE MÉTÉO (Open-Meteo API)
+        document.getElementById('btn-weather').addEventListener('click', async () => {
+            const center = map.getCenter();
+            updateStatus("Récupération de la météo...", true);
+            try {
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${center.lat}&longitude=${center.lng}&current_weather=true`);
+                const data = await res.json();
+                if (data.current_weather) {
+                    const temp = data.current_weather.temperature;
+                    const wind = data.current_weather.windspeed;
+                    L.popup()
+                        .setLatLng(center)
+                        .setContent(`<div class="text-center"><b>Météo locale</b><br>🌡️ ${temp}°C<br>💨 ${wind} km/h</div>`)
+                        .openOn(map);
+                    updateStatus("Météo affichée !");
+                }
+            } catch (e) {
+                updateStatus("Erreur météo.");
+            }
+        });
+
+        // RECHERCHE CAMPINGS ET POINTS D'EAU (Overpass API)
+        document.getElementById('btn-pois').addEventListener('click', async () => {
+            if (map.getZoom() < 10) {
+                updateStatus("Veuillez zoomer davantage sur la carte.", false);
+                return;
+            }
+            updateStatus("Recherche en cours...", true);
+            poiLayerGroup.clearLayers(); // Nettoie les anciennes recherches
+            
+            const bounds = map.getBounds();
+            const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+            // Requête pour trouver les campings et points d'eau potable
+            const query = `
+                [out:json][timeout:25];
+                (
+                  node["tourism"="camp_site"](${bbox});
+                  node["amenity"="drinking_water"](${bbox});
+                );
+                out body;
+                >;
+                out skel qt;
+            `;
+            
+            try {
+                const res = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: query
+                });
+                const data = await res.json();
+                
+                let count = 0;
+                data.elements.forEach(el => {
+                    if (el.type === 'node') {
+                        const isWater = el.tags && el.tags.amenity === 'drinking_water';
+                        const iconHtml = isWater ? '💧' : '🏕️';
+                        const colorClass = isWater ? 'bg-blue-500' : 'bg-emerald-600';
+                        const title = el.tags.name || (isWater ? 'Point d\'eau potable' : 'Camping');
+                        
+                        // Création d'une icône CSS personnalisée pour ne pas être effacée par le filtre anti-Komoot
+                        const icon = L.divIcon({
+                            className: '',
+                            html: `<div class="${colorClass} text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md border-2 border-white">${iconHtml}</div>`,
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 16]
+                        });
+                        
+                        L.marker([el.lat, el.lon], {icon: icon}).bindPopup(`<b>${title}</b>`).addTo(poiLayerGroup);
+                        count++;
+                    }
+                });
+                updateStatus(`${count} lieux trouvés !`);
+            } catch (e) {
+                updateStatus("Erreur lors de la recherche.");
+                console.error(e);
+            }
         });
 
         // VALIDATION D'UNE ETAPE
