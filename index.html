@@ -37,6 +37,11 @@
             }
         }
 
+        /* MASQUER LES POINTS D'INTÉRÊT KOMOOT (Radical et efficace) */
+        img.leaflet-marker-icon, img.leaflet-marker-shadow {
+            display: none !important;
+        }
+
         /* Viseur central pour la météo */
         #crosshair {
             position: absolute;
@@ -119,24 +124,28 @@
     </div>
 
     <!-- Barre de progression (Mode visiteur ou Admin en cours) -->
-    <div id="progress-container" class="absolute top-0 left-0 w-full h-2 bg-gray-200 z-50 hidden">
+    <div id="progress-container" class="absolute top-0 left-0 w-full h-6 bg-gray-200 z-50 hidden">
         <div id="progress-bar" class="h-full bg-green-500 transition-all duration-1000" style="width: 0%"></div>
-        <div id="progress-text" class="absolute top-3 left-1/2 transform -translate-x-1/2 text-sm font-bold bg-white px-2 py-1 rounded shadow hidden">0%</div>
+        <div id="progress-text" class="absolute top-0 left-0 w-full h-full flex items-center justify-center text-xs font-bold text-gray-800 drop-shadow-md hidden">0%</div>
     </div>
 
     <!-- Bouton Menu Mobile (Hamburger) -->
-    <button id="menu-btn" class="absolute top-4 left-4 z-40 bg-white p-2 rounded shadow-lg text-gray-800 hover:bg-gray-100 sm:hidden">
+    <button id="menu-btn" class="absolute top-8 left-4 z-40 bg-white p-2 rounded shadow-lg text-gray-800 hover:bg-gray-100 sm:hidden">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
     </button>
 
     <!-- Sidebar / Panneau de contrôle -->
-    <div id="sidebar" class="absolute top-0 left-0 h-full w-80 bg-white shadow-2xl p-6 flex flex-col -translate-x-full sm:translate-x-0 overflow-y-auto">
+    <div id="sidebar" class="absolute top-0 left-0 h-full w-80 bg-white shadow-2xl p-6 flex flex-col -translate-x-full sm:translate-x-0 overflow-y-auto pt-10 sm:pt-6">
         <button id="close-sidebar-btn" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 sm:hidden">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>
         
         <h2 class="text-2xl font-bold mb-4 text-blue-600">Planification</h2>
         
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Date de départ</label>
+            <input type="date" id="start-date" class="w-full border rounded p-2 text-gray-800">
+        </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Km cible / jour</label>
             <input type="number" id="target-dist" value="70" class="w-full border rounded p-2 text-gray-800">
@@ -228,6 +237,16 @@
         const urlParams = new URLSearchParams(window.location.search);
         const isVisitorMode = urlParams.has('visitor');
         
+        // GESTION DE LA DATE DE DEPART
+        const startDateInput = document.getElementById('start-date');
+        const todayStr = new Date().toISOString().split('T')[0];
+        startDateInput.value = localStorage.getItem('my_bike_trip_start') || todayStr;
+
+        startDateInput.addEventListener('change', (e) => {
+            localStorage.setItem('my_bike_trip_start', e.target.value);
+            if (isInitialLoadingFinished) recalculateTotals();
+        });
+
         // RECUPERATION DE LA PROGRESSION (Lien URL ou Stockage Local)
         let completedDays = parseInt(localStorage.getItem('my_bike_trip_progress')) || 0;
         if (urlParams.has('progress')) {
@@ -316,14 +335,21 @@
                 
                 tracesAutomatiques.forEach(file => {
                     const isTrain = file.mode === 'train';
-                    const gpxLayer = new L.GPX(file.url, { 
+                    
+                    // Sécurisation de l'URL pour gérer les espaces ET les environnements de test (blob/srcdoc)
+                    let baseUri = window.location.href;
+                    if (baseUri.startsWith('blob:') || baseUri.startsWith('about:')) {
+                        baseUri = 'https://localhost/'; // Empêche le crash dans les bacs à sable web
+                    }
+                    const safeUrl = new URL(encodeURI(file.url), baseUri).href;
+                    
+                    const gpxLayer = new L.GPX(safeUrl, { 
                         async: true, 
                         polyline_options: { 
                             color: isTrain ? '#ef4444' : '#3b82f6', 
                             weight: isTrain ? 3 : 4,
                             dashArray: isTrain ? '10, 10' : ''
                         },
-                        // Option : on désactive les icônes par défaut pour éviter des chargements inutiles
                         marker_options: {
                             startIconUrl: '',
                             endIconUrl: '',
@@ -334,13 +360,6 @@
                     gpxLayer.tripMode = file.mode;
                     
                     gpxLayer.on('loaded', (e) => { 
-                        // NETTOYAGE VISUEL : On supprime toutes les épingles (départ, arrivée, POI Komoot)
-                        // pour ne garder strictement que le tracé (la ligne continue).
-                        e.target.eachLayer(layer => {
-                            if (layer instanceof L.Marker) {
-                                e.target.removeLayer(layer);
-                            }
-                        });
                         handleInitialProgress(); 
                     });
                     gpxLayer.on('error', (e) => { console.warn("Fichier introuvable/erreur :", file.url); handleInitialProgress(); });
@@ -373,8 +392,15 @@
         function updateProgressBar() {
             if (totalCalculatedDays <= 0) return;
             const pct = Math.min(100, Math.max(0, (completedDays / totalCalculatedDays) * 100));
+            
+            // Calcul de la date de fin estimée
+            let startStr = isVisitorMode && urlParams.has('start') ? urlParams.get('start') : startDateInput.value;
+            let endDate = new Date(startStr);
+            endDate.setDate(endDate.getDate() + totalCalculatedDays - 1);
+            let endDateFmt = endDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
             document.getElementById('progress-bar').style.width = pct + '%';
-            document.getElementById('progress-text').innerText = Math.round(pct) + '% (' + completedDays + '/' + totalCalculatedDays + 'j)';
+            document.getElementById('progress-text').innerText = `${Math.round(pct)}% (${completedDays}/${totalCalculatedDays}j) • Arrivée estimée : ${endDateFmt}`;
         }
 
         document.getElementById('btn-recalc').addEventListener('click', () => {
@@ -389,6 +415,7 @@
             const url = new URL(window.location.href);
             url.searchParams.set('visitor', 'true');
             url.searchParams.set('progress', completedDays);
+            url.searchParams.set('start', startDateInput.value);
             
             const dummy = document.createElement('input');
             document.body.appendChild(dummy);
@@ -421,8 +448,6 @@
         // DEVALIDATION D'UNE ETAPE (RETOUR EN ARRIÈRE)
         window.unmarkDayCompleted = async function(day) {
             if (isVisitorMode) return;
-            
-            // Si on dévalide l'étape J5, la dernière étape valide devient J4
             completedDays = day - 1; 
             
             localStorage.setItem('my_bike_trip_progress', completedDays);
@@ -507,6 +532,10 @@
             const restDaysPerWeek = parseInt(document.getElementById('rest-days').value) || 2;
             const activeDaysPerWeek = 7 - restDaysPerWeek;
 
+            // Calcul date de base
+            let startStr = isVisitorMode && urlParams.has('start') ? urlParams.get('start') : startDateInput.value;
+            let baseDate = new Date(startStr);
+
             let currentDayDist = 0;
             let currentDayElev = 0;
             let bikeDayCount = 1;
@@ -552,7 +581,12 @@
                     
                     const marker = L.marker([curr.lat, curr.lng], {icon: icon}).addTo(map);
                     
-                    let popupHtml = `<b>Fin du Jour ${totalRealDays}</b><br>Dist: ${Math.round(currentDayDist)}km<br>D+: ${Math.round(currentDayElev)}m`;
+                    // Calcul de la date de l'étape
+                    const milestoneDate = new Date(baseDate);
+                    milestoneDate.setDate(baseDate.getDate() + totalRealDays - 1);
+                    const dateStr = milestoneDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+                    
+                    let popupHtml = `<b>Étape J${totalRealDays} • ${dateStr}</b><br>Dist: ${Math.round(currentDayDist)}km<br>D+: ${Math.round(currentDayElev)}m`;
                     if (!isVisitorMode) {
                         if (!isCompleted) {
                             popupHtml += `<br><button onclick="markDayCompleted(${totalRealDays})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
