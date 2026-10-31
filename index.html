@@ -322,12 +322,27 @@
                             color: isTrain ? '#ef4444' : '#3b82f6', 
                             weight: isTrain ? 3 : 4,
                             dashArray: isTrain ? '10, 10' : ''
-                        } 
+                        },
+                        // Option : on désactive les icônes par défaut pour éviter des chargements inutiles
+                        marker_options: {
+                            startIconUrl: '',
+                            endIconUrl: '',
+                            shadowUrl: ''
+                        }
                     });
                     
                     gpxLayer.tripMode = file.mode;
                     
-                    gpxLayer.on('loaded', (e) => { handleInitialProgress(); });
+                    gpxLayer.on('loaded', (e) => { 
+                        // NETTOYAGE VISUEL : On supprime toutes les épingles (départ, arrivée, POI Komoot)
+                        // pour ne garder strictement que le tracé (la ligne continue).
+                        e.target.eachLayer(layer => {
+                            if (layer instanceof L.Marker) {
+                                e.target.removeLayer(layer);
+                            }
+                        });
+                        handleInitialProgress(); 
+                    });
                     gpxLayer.on('error', (e) => { console.warn("Fichier introuvable/erreur :", file.url); handleInitialProgress(); });
                     gpxLayer.addTo(gpxLayerGroup);
                 });
