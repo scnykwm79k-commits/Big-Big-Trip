@@ -219,10 +219,25 @@
         let isInitialLoadingFinished = false;
         const urlParams = new URLSearchParams(window.location.search);
         const isVisitorMode = urlParams.has('visitor');
-        let completedDays = 0;
+        
+        // RECUPERATION DE LA PROGRESSION (Lien URL ou Stockage Local)
+        let completedDays = parseInt(localStorage.getItem('my_bike_trip_progress')) || 0;
+        if (urlParams.has('progress')) {
+            completedDays = parseInt(urlParams.get('progress')) || 0;
+        }
+
         let totalCalculatedDays = 0;
         let chartLatLngs = []; 
         let toastTimeout;
+
+        // ÉCOUTEUR MAGIQUE (Synchronise 2 onglets ouverts sur le même PC)
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'my_bike_trip_progress') {
+                completedDays = parseInt(e.newValue) || 0;
+                updateProgressBar();
+                if (isInitialLoadingFinished) recalculateTotals(); 
+            }
+        });
 
         // === UI & TOAST ===
         function updateStatus(msg, keepOpen = false) {
@@ -303,6 +318,9 @@
                         } 
                     });
                     
+                    // On stocke le mode dans le calque pour l'utiliser plus tard
+                    gpxLayer.tripMode = file.mode;
+                    
                     gpxLayer.on('loaded', (e) => { handleInitialProgress(); });
                     gpxLayer.on('error', (e) => { console.warn("Fichier introuvable/erreur :", file.url); handleInitialProgress(); });
                     gpxLayer.addTo(gpxLayerGroup);
@@ -349,6 +367,10 @@
         document.getElementById('btn-share').addEventListener('click', () => {
             const url = new URL(window.location.href);
             url.searchParams.set('visitor', 'true');
+            
+            // On glisse discrètement le numéro de l'étape dans le lien copié !
+            url.searchParams.set('progress', completedDays);
+            
             const dummy = document.createElement('input');
             document.body.appendChild(dummy);
             dummy.value = url.href;
@@ -361,6 +383,10 @@
         window.markDayCompleted = async function(day) {
             if (isVisitorMode) return;
             completedDays = day;
+            
+            // Sauvegarde dans le navigateur (déclenche la mise à jour des autres onglets)
+            localStorage.setItem('my_bike_trip_progress', day);
+            
             updateProgressBar();
             map.closePopup();
             updateStatus(`Étape J${day} validée !`);
@@ -408,13 +434,21 @@
 
             gpxLayerGroup.eachLayer(function(layer) {
                 try {
-                    const dist = layer.get_distance ? layer.get_distance() / 1000 : 0;
-                    const elev = layer.get_elevation_gain ? layer.get_elevation_gain() : 0;
-                    totalBikeDist += isNaN(dist) ? 0 : dist;
-                    totalBikeElev += isNaN(elev) ? 0 : elev;
+                    const isTrain = layer.tripMode === 'train';
+                    
+                    // On n'ajoute la distance et le dénivelé au total que si ce n'est PAS un train
+                    if (!isTrain) {
+                        const dist = layer.get_distance ? layer.get_distance() / 1000 : 0;
+                        const elev = layer.get_elevation_gain ? layer.get_elevation_gain() : 0;
+                        totalBikeDist += isNaN(dist) ? 0 : dist;
+                        totalBikeElev += isNaN(elev) ? 0 : elev;
+                    }
                     
                     // On utilise la fonction robuste pour extraire absolument tous les points GPS
-                    globalPoints.push(...extractPoints(layer));
+                    const pts = extractPoints(layer);
+                    // On marque chaque point avec le type de transport
+                    pts.forEach(p => p.tripMode = layer.tripMode || 'bike');
+                    globalPoints.push(...pts);
                 } catch (e) { console.warn("Tracé ignoré dans le calcul global"); }
             });
 
@@ -442,24 +476,37 @@
             let bikeDayCount = 1;
             let totalRealDays = 1;
             
-            for (let i = 1; i < points.length; i++) {
-                const prev = points[i-1];
+            let lastBikePoint = null;
+            
+            for (let i = 0; i < points.length; i++) {
                 const curr = points[i];
                 
-                const d = map.distance(prev, curr) / 1000;
-                currentDayDist += d;
-                
-                if (curr.meta && curr.meta.ele && prev.meta && prev.meta.ele) {
-                    const eleDiff = curr.meta.ele - prev.meta.ele;
-                    if (eleDiff > 0) currentDayElev += eleDiff;
+                // Si c'est un point de train, on ignore et on casse la continuité
+                if (curr.tripMode === 'train') {
+                    lastBikePoint = null; 
+                    continue; 
                 }
+                
+                if (lastBikePoint) {
+                    const d = map.distance(lastBikePoint, curr) / 1000;
+                    // Sécurité : si la distance entre deux points est énorme (> 20km), c'est un trou (ex: saut spatial en train), on ne l'ajoute pas.
+                    if (d < 20) {
+                        currentDayDist += d;
+                        
+                        if (curr.meta && curr.meta.ele && lastBikePoint.meta && lastBikePoint.meta.ele) {
+                            const eleDiff = curr.meta.ele - lastBikePoint.meta.ele;
+                            if (eleDiff > 0) currentDayElev += eleDiff;
+                        }
+                    }
+                }
+                lastBikePoint = curr;
 
                 let endOfDay = false;
                 if (currentDayElev >= targetElevMax) endOfDay = true;
                 else if (currentDayDist >= targetDist && currentDayElev >= targetElevMin) endOfDay = true;
                 else if (currentDayDist >= absoluteMaxDist) endOfDay = true;
 
-                if (endOfDay && i < points.length - 1) {
+                if (endOfDay) {
                     const isCompleted = totalRealDays <= completedDays;
                     const colorClass = isCompleted ? 'completed' : '';
                     const icon = L.divIcon({
@@ -538,12 +585,17 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    onHover: (event, chartElement) => {
+                        // Change le curseur de la souris pour indiquer que c'est interactif
+                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                    },
                     onClick: (e, activeEls) => {
                         if (activeEls.length > 0) {
                             const index = activeEls[0].index;
                             const targetLatLng = chartLatLngs[index];
                             if (targetLatLng) {
-                                map.flyTo(targetLatLng, 13, { duration: 1.5 });
+                                // Zoom niveau 9 = Vue d'environ 50km de rayon (100km de large)
+                                map.flyTo(targetLatLng, 9, { duration: 1.5 });
                             }
                         }
                     },
