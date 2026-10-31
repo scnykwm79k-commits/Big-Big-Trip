@@ -26,6 +26,15 @@
             z-index: 30;
             backdrop-filter: blur(5px);
             border-top: 1px solid #ddd;
+            transition: all 0.3s ease-in-out;
+        }
+
+        /* DÉCALAGE DU GRAPHIQUE SUR ORDINATEUR POUR NE PAS ÊTRE CACHÉ PAR LE MENU */
+        @media (min-width: 640px) {
+            body:not(.visitor-mode) #elevation-container {
+                left: 20rem; /* Correspond à la largeur du menu w-80 de Tailwind (320px) */
+                width: calc(100% - 20rem);
+            }
         }
 
         /* Viseur central pour la météo */
@@ -187,7 +196,6 @@
 
         // === CONFIGURATION FIREBASE CLOUD ===
         const firebaseConfig = {
-            // Remplacez par vos clés si vous avez créé un projet Firebase, sinon le cloud simulera en local
             projectId: "bike-trip-app-demo" 
         };
         let isFirebaseReady = false;
@@ -260,7 +268,7 @@
 
         const gpxLayerGroup = L.featureGroup().addTo(map);
 
-        // === GESTION MOBILE ===
+        // === GESTION MOBILE ET VISITEUR ===
         const sidebar = document.getElementById('sidebar');
         document.getElementById('menu-btn').addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); });
         document.getElementById('close-sidebar-btn').addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); });
@@ -307,8 +315,6 @@
                 setTimeout(() => { if (!isInitialLoadingFinished) forceUnlockMap(); }, 8000);
                 
                 tracesAutomatiques.forEach(file => {
-                    // On utilise file.url pour trouver le fichier
-                    // On utilise file.mode pour changer la couleur (train = rouge pointillé, vélo = bleu continu)
                     const isTrain = file.mode === 'train';
                     const gpxLayer = new L.GPX(file.url, { 
                         async: true, 
@@ -319,7 +325,6 @@
                         } 
                     });
                     
-                    // On stocke le mode dans le calque pour l'utiliser plus tard
                     gpxLayer.tripMode = file.mode;
                     
                     gpxLayer.on('loaded', (e) => { handleInitialProgress(); });
@@ -368,8 +373,6 @@
         document.getElementById('btn-share').addEventListener('click', () => {
             const url = new URL(window.location.href);
             url.searchParams.set('visitor', 'true');
-            
-            // On glisse discrètement le numéro de l'étape dans le lien copié !
             url.searchParams.set('progress', completedDays);
             
             const dummy = document.createElement('input');
@@ -381,11 +384,11 @@
             updateStatus("Lien Visiteur copié !");
         });
 
+        // VALIDATION D'UNE ETAPE
         window.markDayCompleted = async function(day) {
             if (isVisitorMode) return;
             completedDays = day;
             
-            // Sauvegarde dans le navigateur (déclenche la mise à jour des autres onglets)
             localStorage.setItem('my_bike_trip_progress', day);
             
             updateProgressBar();
@@ -400,7 +403,28 @@
             recalculateTotals();
         };
 
-        // Fonction d'extraction ultra-robuste pour fouiller tous les sous-dossiers d'un fichier GPX
+        // DEVALIDATION D'UNE ETAPE (RETOUR EN ARRIÈRE)
+        window.unmarkDayCompleted = async function(day) {
+            if (isVisitorMode) return;
+            
+            // Si on dévalide l'étape J5, la dernière étape valide devient J4
+            completedDays = day - 1; 
+            
+            localStorage.setItem('my_bike_trip_progress', completedDays);
+            
+            updateProgressBar();
+            map.closePopup();
+            updateStatus(`Retour à l'étape J${completedDays}`);
+            
+            if (isFirebaseReady) {
+                try {
+                    await setDoc(doc(db, 'trips', 'my-big-trip'), { completedDays: completedDays });
+                } catch (e) {}
+            }
+            recalculateTotals();
+        };
+
+        // Fonction d'extraction ultra-robuste
         function extractPoints(layer) {
             let pts = [];
             if (layer.getLatLngs) {
@@ -426,7 +450,6 @@
             let totalBikeElev = 0;
             let globalPoints = [];
             
-            // Nettoyage des anciens marqueurs
             map.eachLayer(layer => {
                 if (layer instanceof L.Marker && layer.options.icon && layer.options.icon.options.className && layer.options.icon.options.className.includes('milestone')) {
                     map.removeLayer(layer);
@@ -437,7 +460,6 @@
                 try {
                     const isTrain = layer.tripMode === 'train';
                     
-                    // On n'ajoute la distance et le dénivelé au total que si ce n'est PAS un train
                     if (!isTrain) {
                         const dist = layer.get_distance ? layer.get_distance() / 1000 : 0;
                         const elev = layer.get_elevation_gain ? layer.get_elevation_gain() : 0;
@@ -445,9 +467,7 @@
                         totalBikeElev += isNaN(elev) ? 0 : elev;
                     }
                     
-                    // On utilise la fonction robuste pour extraire absolument tous les points GPS
                     const pts = extractPoints(layer);
-                    // On marque chaque point avec le type de transport
                     pts.forEach(p => p.tripMode = layer.tripMode || 'bike');
                     globalPoints.push(...pts);
                 } catch (e) { console.warn("Tracé ignoré dans le calcul global"); }
@@ -482,7 +502,6 @@
             for (let i = 0; i < points.length; i++) {
                 const curr = points[i];
                 
-                // Si c'est un point de train, on ignore et on casse la continuité
                 if (curr.tripMode === 'train') {
                     lastBikePoint = null; 
                     continue; 
@@ -490,7 +509,6 @@
                 
                 if (lastBikePoint) {
                     const d = map.distance(lastBikePoint, curr) / 1000;
-                    // Sécurité : si la distance entre deux points est énorme (> 20km), c'est un trou (ex: saut spatial en train), on ne l'ajoute pas.
                     if (d < 20) {
                         currentDayDist += d;
                         
@@ -564,15 +582,12 @@
             chartLatLngs = [];
             let cumulativeDist = 0;
             
-            // 1. On ignore complètement les portions en train pour le graphique
             const bikePoints = points.filter(p => p.tripMode !== 'train');
-            
             let samplingRate = Math.max(1, Math.floor(bikePoints.length / 200));
             
             for (let i = 0; i < bikePoints.length; i += samplingRate) {
                 if (i > 0) {
                     const d = map.distance(bikePoints[i-1], bikePoints[i]) / 1000;
-                    // On ignore les gros sauts (ex: le trajet en train) pour ne pas fausser l'axe X
                     if (d < 20) {
                         cumulativeDist += d * samplingRate;
                     }
@@ -594,13 +609,12 @@
                         fill: true,
                         pointRadius: 0,
                         pointHoverRadius: 6,
-                        pointHoverBackgroundColor: '#1e3a8a' // Plus sombre au survol
+                        pointHoverBackgroundColor: '#1e3a8a' 
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    // 2. L'effet "Aimant" : s'aligne automatiquement sur le point le plus proche de l'axe X
                     interaction: {
                         mode: 'index',
                         intersect: false,
@@ -613,7 +627,6 @@
                             const index = activeEls[0].index;
                             const targetLatLng = chartLatLngs[index];
                             if (targetLatLng) {
-                                // Zoom niveau 9 = Vue d'environ 50km de rayon
                                 map.flyTo(targetLatLng, 9, { duration: 1.5 });
                             }
                         }
