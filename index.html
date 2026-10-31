@@ -266,6 +266,7 @@
         document.getElementById('close-sidebar-btn').addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); });
 
         if (isVisitorMode) {
+            document.body.classList.add('visitor-mode');
             sidebar.classList.add('hidden');
             document.getElementById('menu-btn').classList.add('hidden');
             document.getElementById('progress-container').classList.remove('hidden');
@@ -519,8 +520,12 @@
                     const marker = L.marker([curr.lat, curr.lng], {icon: icon}).addTo(map);
                     
                     let popupHtml = `<b>Fin du Jour ${totalRealDays}</b><br>Dist: ${Math.round(currentDayDist)}km<br>D+: ${Math.round(currentDayElev)}m`;
-                    if (!isVisitorMode && !isCompleted) {
-                        popupHtml += `<br><button onclick="markDayCompleted(${totalRealDays})" class="mt-2 bg-green-500 text-white px-2 py-1 rounded text-xs w-full">Valider cette étape</button>`;
+                    if (!isVisitorMode) {
+                        if (!isCompleted) {
+                            popupHtml += `<br><button onclick="markDayCompleted(${totalRealDays})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
+                        } else {
+                            popupHtml += `<br><button onclick="unmarkDayCompleted(${totalRealDays})" class="mt-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs w-full transition">Dévalider (revenir ici)</button>`;
+                        }
                     }
                     marker.bindPopup(popupHtml);
                     
