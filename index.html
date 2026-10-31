@@ -133,6 +133,10 @@
             <input type="number" id="target-dist" value="70" class="w-full border rounded p-2 text-gray-800">
         </div>
         <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Km Max absolu (si plat)</label>
+            <input type="number" id="max-dist" value="120" class="w-full border rounded p-2 text-gray-800">
+        </div>
+        <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Min (m)</label>
             <input type="number" id="target-elev-min" value="450" class="w-full border rounded p-2 text-gray-800">
         </div>
@@ -369,6 +373,27 @@
             recalculateTotals();
         };
 
+        // Fonction d'extraction ultra-robuste pour fouiller tous les sous-dossiers d'un fichier GPX
+        function extractPoints(layer) {
+            let pts = [];
+            if (layer.getLatLngs) {
+                const latlngs = layer.getLatLngs();
+                const flat = (arr) => {
+                    if (Array.isArray(arr)) {
+                        if (arr.length > 0 && arr[0] instanceof L.LatLng) pts.push(...arr);
+                        else arr.forEach(flat);
+                    }
+                };
+                flat(latlngs);
+            }
+            if (layer.eachLayer) {
+                layer.eachLayer(child => {
+                    pts.push(...extractPoints(child));
+                });
+            }
+            return pts;
+        }
+
         function recalculateTotals() {
             let totalBikeDist = 0;
             let totalBikeElev = 0;
@@ -383,20 +408,13 @@
 
             gpxLayerGroup.eachLayer(function(layer) {
                 try {
-                    const dist = layer.get_distance() / 1000;
-                    const elev = layer.get_elevation_gain();
-                    totalBikeDist += dist;
+                    const dist = layer.get_distance ? layer.get_distance() / 1000 : 0;
+                    const elev = layer.get_elevation_gain ? layer.get_elevation_gain() : 0;
+                    totalBikeDist += isNaN(dist) ? 0 : dist;
                     totalBikeElev += isNaN(elev) ? 0 : elev;
                     
-                    const layers = layer.getLayers();
-                    if (layers.length > 0 && layers[0].getLatLngs) {
-                        const coords = layers[0].getLatLngs();
-                        if (Array.isArray(coords[0])) {
-                            coords.forEach(segment => globalPoints.push(...segment));
-                        } else {
-                            globalPoints.push(...coords);
-                        }
-                    }
+                    // On utilise la fonction robuste pour extraire absolument tous les points GPS
+                    globalPoints.push(...extractPoints(layer));
                 } catch (e) { console.warn("Tracé ignoré dans le calcul global"); }
             });
 
@@ -413,11 +431,11 @@
             if (!points || points.length === 0) return 0;
             
             const targetDist = parseFloat(document.getElementById('target-dist').value) || 70;
+            const absoluteMaxDist = parseFloat(document.getElementById('max-dist').value) || 120;
             const targetElevMin = parseFloat(document.getElementById('target-elev-min').value) || 450;
             const targetElevMax = parseFloat(document.getElementById('target-elev-max').value) || 1350;
             const restDaysPerWeek = parseInt(document.getElementById('rest-days').value) || 2;
             const activeDaysPerWeek = 7 - restDaysPerWeek;
-            const absoluteMaxDist = targetDist * 1.5;
 
             let currentDayDist = 0;
             let currentDayElev = 0;
