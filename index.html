@@ -3,860 +3,523 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mon Voyage à Vélo</title>
-    
-    <!-- Tailwind CSS -->
+    <title>Big Big Trip</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-    <!-- Leaflet GPX -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
-
-    <!-- Chart.js pour le dénivelé -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
     <style>
-        #map { height: 100%; width: 100%; }
-        .gpx-list-item { transition: all 0.2s; }
-        .gpx-list-item:hover { background-color: #f3f4f6; }
-        .milestone-label {
-            background-color: white;
-            border: 2px solid #2563eb;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; }
+        #map { width: 100vw; height: 100vh; z-index: 10; }
+        
+        /* Tiroir latéral pour mobile et desktop */
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+            z-index: 40;
+        }
+        
+        /* Graphique de dénivelé */
+        #elevation-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 30;
+            backdrop-filter: blur(5px);
+            border-top: 1px solid #ddd;
+        }
+
+        /* Viseur central pour la météo */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+            z-index: 20;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 0, 0, 0.5);
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        /* Écran de verrouillage / chargement */
+        #lock-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #1e293b;
+            z-index: 100;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            color: white;
+        }
+        
+        /* Bulle de statut flottante (Toast) */
+        #status-toast {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            z-index: 50;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        #status-toast.visible { opacity: 1; }
+
+        .milestone-icon {
+            background-color: #2563eb;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
             font-weight: bold;
             font-size: 12px;
-            color: #2563eb;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            border: 2px solid white;
+            cursor: pointer;
         }
-        /* Assure que la barre de défilement est toujours propre */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .milestone-icon.completed {
+            background-color: #16a34a;
+        }
     </style>
 </head>
-<body class="h-screen w-screen flex overflow-hidden bg-gray-50 font-sans relative">
+<body>
 
-    <!-- ÉCRAN DE VERROUILLAGE -->
-    <div id="auth-modal" class="absolute inset-0 z-[9999] flex items-center justify-center bg-gray-900/60 backdrop-blur-md">
-        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
-            <div class="text-4xl mb-4">🚲</div>
-            <h2 class="text-2xl font-bold mb-6 text-gray-800">Accès Protégé</h2>
-            <input type="password" id="auth-pwd" placeholder="Mot de passe" class="w-full p-3 border border-gray-300 rounded-lg mb-4 text-center text-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <button id="auth-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-200">
-                Déverrouiller la carte
-            </button>
-            <p id="auth-error" class="text-red-500 text-sm mt-3 hidden">Mot de passe incorrect</p>
+    <!-- Écran de Mot de Passe / Chargement -->
+    <div id="lock-screen">
+        <h1 class="text-4xl font-bold mb-6">Big Big Trip</h1>
+        <div id="password-container" class="flex flex-col items-center">
+            <input type="password" id="password-input" placeholder="Mot de passe..." class="px-4 py-2 rounded text-black mb-4 text-center">
+            <button id="unlock-btn" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded font-semibold transition">Déverrouiller</button>
+        </div>
+        <div id="loading-container" class="hidden flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
+            <p id="loading-text" class="text-lg">Chargement des tracés (0/X)...</p>
         </div>
     </div>
 
-    <!-- OVERLAY MOBILE (Fond sombre quand le menu est ouvert) -->
-    <div id="sidebar-overlay" class="absolute inset-0 bg-black/50 z-[990] hidden md:hidden backdrop-blur-sm transition-opacity"></div>
-
-    <!-- SIDEBAR -->
-    <div id="sidebar" class="absolute md:relative inset-y-0 left-0 w-[85%] max-w-[320px] md:w-96 bg-white shadow-2xl md:shadow-xl flex flex-col h-full z-[1000] md:z-10 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
-        <div class="p-6 bg-blue-600 text-white flex-shrink-0 flex justify-between items-center">
-            <h1 class="text-2xl font-bold flex items-center gap-2">
-                <span>🌍</span> Big Big Trip
-            </h1>
-            <button id="btn-close-sidebar" class="md:hidden text-white text-3xl leading-none hover:text-gray-200">&times;</button>
-        </div>
-
-        <!-- Le min-h-0 force Flexbox à accepter le défilement si le contenu dépasse -->
-        <div class="flex-1 overflow-y-auto min-h-0 p-4 md:p-6 space-y-6">
-                
-                <div class="grid grid-cols-2 gap-3 mb-2">
-                    <div>
-                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="Kilométrage idéal">Dist. Cible (km)</label>
-                        <input type="number" id="plan-km-day" value="70" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
-                    </div>
-                    <div>
-                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="Limite absolue à ne jamais dépasser">Dist. Max (km) ℹ️</label>
-                        <input type="number" id="plan-km-max" value="120" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
-                    </div>
-                    <div>
-                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="On rallonge l'étape si on n'a pas fait ce dénivelé">D+ Min (m) ℹ️</label>
-                        <input type="number" id="plan-ele-min" value="450" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
-                    </div>
-                    <div>
-                        <label class="text-[10px] text-gray-500 font-bold uppercase" title="Limite absolue de grimpe par jour">D+ Max (m) ℹ️</label>
-                        <input type="number" id="plan-ele-max" value="1350" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
-                    </div>
-                    <div class="col-span-2">
-                        <label class="text-[10px] text-gray-500 font-bold uppercase">Jours de pause (par sem)</label>
-                        <input type="number" id="plan-rest-days" value="2" class="w-full p-1.5 border rounded mt-1 bg-white font-bold text-blue-600 text-sm">
-                    </div>
-                </div>
-
-                <button id="btn-recalc" class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-2 px-4 rounded-lg transition shadow-sm text-sm flex items-center justify-center gap-2">
-                    🔄 Recalculer les étapes
-                </button>
-
-                <div class="grid grid-cols-2 gap-2 text-sm">
-                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
-                        <span class="block text-gray-400 text-xs">Distance Vélo</span>
-                        <span id="stat-dist" class="font-bold text-lg text-gray-800">0 km</span>
-                    </div>
-                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
-                        <span class="block text-gray-400 text-xs">Temps estimé</span>
-                        <span id="stat-days" class="font-bold text-lg text-green-600">0 jours</span>
-                    </div>
-                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
-                        <span class="block text-gray-400 text-xs">Dénivelé +</span>
-                        <span id="stat-ele-up" class="font-bold text-md text-red-500">0 m</span>
-                    </div>
-                    <div class="bg-white p-2 rounded shadow-sm border border-gray-100">
-                        <span class="block text-gray-400 text-xs">Dénivelé -</span>
-                        <span id="stat-ele-down" class="font-bold text-md text-blue-500">0 m</span>
-                    </div>
-                </div>
-
-            <!-- Import et Liste des Tracés -->
-            <div>
-                <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">📂 Mes Tracés (GPX)</h3>
-                
-                <label class="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition mb-3">
-                    <div class="flex flex-col items-center justify-center">
-                        <span class="text-gray-500 text-sm">Cliquez ou glissez un fichier .gpx</span>
-                    </div>
-                    <input type="file" id="gpx-input" accept=".gpx" class="hidden" />
-                </label>
-
-                <div id="track-list" class="space-y-2 max-h-40 overflow-y-auto border-t border-b py-2">
-                    <!-- Liste générée en JS -->
-                </div>
-            </div>
-
-            <!-- Recherche POI -->
-            <div id="poi-search-container" class="hidden pb-4">
-                <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🔍 Autour du tracé</h3>
-                
-                <div class="space-y-2 mb-4 text-sm">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="check-camp" checked class="rounded text-blue-600">
-                        <span>⛺ Campings</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="check-water" checked class="rounded text-blue-600">
-                        <span>💧 Points d'eau potable</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="check-bike" checked class="rounded text-blue-600">
-                        <span>🛠️ Magasins / Réparateurs Vélo</span>
-                    </label>
-                </div>
-
-                <button id="btn-search-poi" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-md flex items-center justify-center gap-2">
-                    <span>Lancer la recherche</span>
-                </button>
-            </div>
-
-        </div>
+    <!-- Barre de progression (Mode visiteur ou Admin en cours) -->
+    <div id="progress-container" class="absolute top-0 left-0 w-full h-2 bg-gray-200 z-50 hidden">
+        <div id="progress-bar" class="h-full bg-green-500 transition-all duration-1000" style="width: 0%"></div>
+        <div id="progress-text" class="absolute top-3 left-1/2 transform -translate-x-1/2 text-sm font-bold bg-white px-2 py-1 rounded shadow hidden">0%</div>
     </div>
 
-    <!-- MAIN AREA (Map + Chart) -->
-    <div class="flex-1 flex flex-col relative h-full min-w-0">
-        <!-- Boutons Flottants -->
-        <div class="absolute top-4 left-4 z-[400] md:hidden">
-            <button id="btn-open-sidebar" class="bg-white p-2 w-12 h-12 rounded-full shadow-lg hover:bg-gray-100 transition text-xl flex items-center justify-center" title="Ouvrir le menu">
-                ☰
-            </button>
+    <!-- Bouton Menu Mobile (Hamburger) -->
+    <button id="menu-btn" class="absolute top-4 left-4 z-40 bg-white p-2 rounded shadow-lg text-gray-800 hover:bg-gray-100 sm:hidden">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    </button>
+
+    <!-- Sidebar / Panneau de contrôle -->
+    <div id="sidebar" class="absolute top-0 left-0 h-full w-80 bg-white shadow-2xl p-6 flex flex-col -translate-x-full sm:translate-x-0 overflow-y-auto">
+        <button id="close-sidebar-btn" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 sm:hidden">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        
+        <h2 class="text-2xl font-bold mb-4 text-blue-600">Planification</h2>
+        
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Km cible / jour</label>
+            <input type="number" id="target-dist" value="70" class="w-full border rounded p-2 text-gray-800">
         </div>
-
-        <div class="absolute top-4 right-4 z-[400] flex flex-col gap-2">
-            <button id="btn-geoloc" class="bg-white p-3 rounded-full shadow-lg hover:bg-gray-100 transition" title="Ma position">
-                📍
-            </button>
-            <button id="btn-weather" class="bg-white p-3 rounded-full shadow-lg hover:bg-gray-100 transition" title="Météo au centre de la carte">
-                🌤️
-            </button>
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Min (m)</label>
+            <input type="number" id="target-elev-min" value="450" class="w-full border rounded p-2 text-gray-800">
         </div>
-
-        <!-- CARTE ET VISEUR MÉTÉO -->
-        <div class="flex-1 z-0 relative h-full">
-            <div id="map" class="absolute inset-0"></div>
-            
-            <!-- Viseur central -->
-            <div class="absolute inset-0 pointer-events-none z-[400] flex items-center justify-center">
-                <div class="w-6 h-6 border-2 border-gray-600/50 rounded-full flex items-center justify-center shadow-sm">
-                    <div class="w-1.5 h-1.5 bg-red-500 rounded-full shadow-sm"></div>
-                </div>
-            </div>
-
-            <!-- Message de statut flottant (Toast) -->
-            <div id="status-toast" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[500] bg-gray-900/80 text-white px-5 py-2 rounded-full shadow-lg text-sm backdrop-blur transition-opacity duration-500 opacity-0 pointer-events-none text-center whitespace-nowrap">
-                Prêt à charger la carte...
-            </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Max (m)</label>
+            <input type="number" id="target-elev-max" value="1350" class="w-full border rounded p-2 text-gray-800">
+        </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Jours de pause (par sem.)</label>
+            <input type="number" id="rest-days" value="2" class="w-full border rounded p-2 text-gray-800">
         </div>
         
-        <!-- PROFIL DÉNIVELÉ -->
-        <div class="h-32 md:h-48 bg-white border-t border-gray-200 p-1 md:p-2 flex-shrink-0 w-full">
-            <canvas id="elevationChart"></canvas>
+        <button id="btn-recalc" class="w-full bg-blue-100 text-blue-700 hover:bg-blue-200 font-semibold py-2 rounded mb-6 transition">🔄 Recalculer les étapes</button>
+
+        <div class="bg-gray-100 p-4 rounded mb-6">
+            <p class="text-sm text-gray-600 mb-1">Total Distance</p>
+            <p id="total-dist" class="text-xl font-bold">0 km</p>
+            <p class="text-sm text-gray-600 mt-2 mb-1">Total Dénivelé</p>
+            <p id="total-elev" class="text-xl font-bold">0 m</p>
+            <p class="text-sm text-gray-600 mt-2 mb-1">Durée estimée (avec pauses)</p>
+            <p id="total-time" class="text-xl font-bold text-green-600">0 jours</p>
         </div>
+
+        <button id="btn-share" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded mb-2 transition">🔗 Copier le lien Visiteur</button>
     </div>
 
-    <script>
-        // --- 1. GESTION DU MOT DE PASSE (AU TOUT DÉBUT) ---
-        const SECRET_PASSWORD = "velo"; // ⚠️ VOTRE MOT DE PASSE ICI ⚠️
-        
-        const authModal = document.getElementById('auth-modal');
-        const authPwd = document.getElementById('auth-pwd');
-        const authBtn = document.getElementById('auth-btn');
-        const authError = document.getElementById('auth-error');
+    <!-- Carte Leaflet -->
+    <div id="map"></div>
+    <!-- Viseur central -->
+    <div id="crosshair"></div>
+    
+    <!-- Toast de statut -->
+    <div id="status-toast">Prêt</div>
 
+    <!-- Graphique Dénivelé -->
+    <div id="elevation-container" class="h-32 sm:h-48 p-2">
+        <canvas id="elevationChart"></canvas>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // === CONFIGURATION FIREBASE CLOUD ===
+        const firebaseConfig = {
+            // Remplacez par vos clés si vous avez créé un projet Firebase, sinon le cloud simulera en local
+            projectId: "bike-trip-app-demo" 
+        };
+        let isFirebaseReady = false;
+        let db, auth;
+        
+        try {
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            isFirebaseReady = true;
+        } catch (e) {
+            console.warn("Firebase non configuré, fonctionnement hors ligne activé.");
+        }
+
+        // === VARIABLES GLOBALES ===
+        const tracesAutomatiques = [
+            // Ajoutez ici les vrais noms de vos fichiers GPX hébergés (ex: '2026-08-12_...gpx')
+            // 'mon_fichier_1.gpx',
+            // 'mon_fichier_2.gpx'
+        ];
+        
         let initialLoadedCount = 0;
         let isInitialLoadingFinished = false;
+        const urlParams = new URLSearchParams(window.location.search);
+        const isVisitorMode = urlParams.has('visitor');
+        let completedDays = 0;
+        let totalCalculatedDays = 0;
+        let chartLatLngs = []; 
+        let toastTimeout;
 
-        function checkPassword() {
-            if (authPwd.value === SECRET_PASSWORD) {
-                authPwd.style.display = 'none';
-                authBtn.style.display = 'none';
-                authError.style.display = 'none';
-                document.querySelector('#auth-modal h2').innerText = "Chargement des tracés...";
-                
-                startInitialLoading();
-            } else {
-                authError.classList.remove('hidden');
-                authPwd.value = '';
+        // === UI & TOAST ===
+        function updateStatus(msg, keepOpen = false) {
+            const toast = document.getElementById('status-toast');
+            toast.innerText = msg;
+            toast.classList.add('visible');
+            clearTimeout(toastTimeout);
+            if (!keepOpen) {
+                toastTimeout = setTimeout(() => { toast.classList.remove('visible'); }, 3000);
             }
         }
 
-        function startInitialLoading() {
-            if (tracesAutomatiques.length === 0) {
-                finishInitialLoading();
-                return;
-            }
-
-            setTimeout(() => {
-                if (!isInitialLoadingFinished) {
-                    console.warn("Temps de chargement trop long. Déverrouillage de sécurité activé !");
-                    finishInitialLoading();
-                }
-            }, 8000);
-
-            tracesAutomatiques.forEach((trace, index) => {
-                loadGpx(trace.url, trace.nom, trace.mode, index, true);
-            });
-        }
-
-        function finishInitialLoading() {
-            if (isInitialLoadingFinished) return;
-            isInitialLoadingFinished = true;
-
-            authModal.style.display = 'none'; 
-            
-            allGpxTracks.sort((a, b) => a.order - b.order);
-            renderTrackList();
-            
-            setTimeout(() => {
-                map.invalidateSize();
-                const bounds = gpxLayerGroup.getBounds();
-                if (bounds.isValid()) map.fitBounds(bounds);
-                
-                try { recalculateTotals(); } catch(e) { console.error("Erreur calcul:", e); }
-                
-                if (allGpxTracks.length > 0) {
-                    document.getElementById('poi-search-container').classList.remove('hidden');
-                    updateStatus(`Tous les tracés sont prêts.`, false, true);
-                } else {
-                    updateStatus(`Prêt. Importez un tracé pour commencer.`, false, true);
-                }
-            }, 200);
-        }
-
-        authBtn.addEventListener('click', checkPassword);
-        authPwd.addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') checkPassword();
-        });
-
-
-        // --- 2. CONFIGURATION DES TRACÉS AUTOMATIQUES ---
-        const tracesAutomatiques = [
-            { url: '2026-08-12_3192717650_Big Big Trip - Annecy to Zurich - komoot.gpx', nom: 'Annecy-Zurich', mode: 'bike' },
-            { url: '2026-10-20_3192771285_Big Big Trip - Zurich to Venise - komoot.gpx', nom: 'Zurich-Venise', mode: 'bike' },
-            { url: '2026-10-30_3372877022_TRAIN VENISE - komoot (1).gpx', nom: 'Train-Italie', mode: 'train' },
-            { url: '2026-10-30_3307456623_Big Big Trip - Venise à Zagreb - komoot.gpx', nom: 'Venise-Zagreb', mode: 'bike' },
-            { url: '2026-10-04_3307475390_Big Big Trip - Zagreb à Dubrovnik - komoot.gpx', nom: 'Zagreb-Dubrovnik', mode: 'bike' },
-            { url: '2026-10-20_3328510323_Big Big Trip - Dubrovnik à Olympe - komoot.gpx', nom: 'Dubrovnik-Olympe', mode: 'bike' },
-            { url: '2026-10-20_3342529635_Big Big Trip - Olympe à Istambul - komoot.gpx', nom: 'Olympe-Istambul', mode: 'bike' },
-            { url: '2026-10-20_3358792947_Big Big Trip - Istanbul à Konya - komoot.gpx', nom: 'Istambul-Konya', mode: 'bike' },
-            { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' }
-        ];
-
-        // --- 3. INITIALISATION DE LA CARTE ---
-        const map = L.map('map').setView([46.2276, 2.2137], 5);
+        // === INITIALISATION CARTE ===
+        const map = L.map('map', { zoomControl: false }).setView([46.603354, 1.888334], 6);
+        L.control.zoom({ position: 'topright' }).addTo(map);
         
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Tiles &copy; Esri'
         }).addTo(map);
 
         const gpxLayerGroup = L.featureGroup().addTo(map);
-        const poiLayerGroup = L.layerGroup().addTo(map);
-        const milestonesLayerGroup = L.layerGroup().addTo(map);
-        let userLocationMarker = null;
 
-        let allGpxTracks = []; 
-        let elevationChartObj = null;
-
-        // UI Elements
-        const statusToast = document.getElementById('status-toast');
-        let statusTimeout;
-        
-        const fileInput = document.getElementById('gpx-input');
-        const trackListEl = document.getElementById('track-list');
-        const btnSearchPoi = document.getElementById('btn-search-poi');
-
-        const inputKmDay = document.getElementById('plan-km-day');
-        const inputKmMax = document.getElementById('plan-km-max');
-        const inputEleMin = document.getElementById('plan-ele-min');
-        const inputEleMax = document.getElementById('plan-ele-max');
-        const inputRestDays = document.getElementById('plan-rest-days');
-
-        // Éléments du menu mobile
+        // === GESTION MOBILE ===
         const sidebar = document.getElementById('sidebar');
-        const sidebarOverlay = document.getElementById('sidebar-overlay');
-        const btnOpenSidebar = document.getElementById('btn-open-sidebar');
-        const btnCloseSidebar = document.getElementById('btn-close-sidebar');
+        document.getElementById('menu-btn').addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); });
+        document.getElementById('close-sidebar-btn').addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); });
 
-        function toggleSidebar(show) {
-            if (show) {
-                sidebar.classList.remove('-translate-x-full');
-                sidebarOverlay.classList.remove('hidden');
-            } else {
-                sidebar.classList.add('-translate-x-full');
-                sidebarOverlay.classList.add('hidden');
-            }
+        if (isVisitorMode) {
+            sidebar.classList.add('hidden');
+            document.getElementById('menu-btn').classList.add('hidden');
+            document.getElementById('progress-container').classList.remove('hidden');
+            document.getElementById('progress-text').classList.remove('hidden');
         }
 
-        if (btnOpenSidebar) btnOpenSidebar.addEventListener('click', () => toggleSidebar(true));
-        if (btnCloseSidebar) btnCloseSidebar.addEventListener('click', () => toggleSidebar(false));
-        if (sidebarOverlay) sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
-
-        function updateStatus(msg, isLoading = false, isSuccess = false) {
-            let icon = isLoading ? '⏳' : (isSuccess ? '✅' : 'ℹ️');
-            statusToast.innerHTML = `${icon} ${msg}`;
-            statusToast.classList.remove('opacity-0');
-            
-            clearTimeout(statusTimeout);
-            
-            if (!isLoading) {
-                statusTimeout = setTimeout(() => {
-                    statusToast.classList.add('opacity-0');
-                }, 3500);
-            }
-        }
-
-        // --- 4. CHARGEMENT DES GPX ---
-        function loadGpx(gpxSource, trackName, trackMode = 'bike', orderIndex = 999, isInitial = false) {
-            updateStatus(`Chargement de ${trackName}...`, true);
-            
-            const gpxOptions = {
-                async: true,
-                marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
-                polyline_options: { 
-                    color: trackMode === 'train' ? '#9ca3af' : '#2563eb', 
-                    weight: 4, 
-                    opacity: trackMode === 'train' ? 0.6 : 0.8, 
-                    lineCap: 'round',
-                    dashArray: trackMode === 'train' ? '8, 8' : null
-                }
-            };
-
-            function handleInitialProgress() {
-                if (isInitial && !isInitialLoadingFinished) {
-                    initialLoadedCount++;
-                    const modalTitle = document.querySelector('#auth-modal h2');
-                    if (modalTitle) {
-                        modalTitle.innerText = `Chargement... (${initialLoadedCount}/${tracesAutomatiques.length})`;
-                    }
-                    if (initialLoadedCount >= tracesAutomatiques.length) {
-                        finishInitialLoading();
-                    }
-                }
-            }
-
+        // === CLOUD SYNC ===
+        async function initCloud() {
+            if (!isFirebaseReady) return;
             try {
-                const safeUrl = gpxSource.startsWith('blob:') ? gpxSource : encodeURI(gpxSource);
-
-                new L.GPX(safeUrl, gpxOptions).on('loaded', function(e) {
-                    const gpx = e.target;
-                    gpxLayerGroup.addLayer(gpx);
-                    
-                    const trackObj = {
-                        id: Date.now() + Math.floor(Math.random() * 1000),
-                        gpx: gpx,
-                        name: trackName,
-                        mode: trackMode,
-                        order: orderIndex
-                    };
-                    allGpxTracks.push(trackObj); 
-                    
-                    if (isInitial) {
-                        handleInitialProgress();
-                    } else {
-                        allGpxTracks.sort((a, b) => a.order - b.order);
-                        const bounds = gpxLayerGroup.getBounds();
-                        if (bounds.isValid()) map.fitBounds(bounds);
-                        
-                        renderTrackList();
-                        document.getElementById('poi-search-container').classList.remove('hidden');
-                        updateStatus(`Tracé ajouté.`, false, true);
-                        
-                        try { recalculateTotals(); } catch(err) { console.warn(err); }
-                    }
-
-                }).on('error', function(e) {
-                    console.warn(`Avertissement GPX: Impossible de lire ${trackName}.`);
-                    updateStatus(`Erreur: Impossible de lire ${trackName}.`, false);
-                    
-                    if (isInitial) {
-                        handleInitialProgress();
-                    } else {
-                        try { recalculateTotals(); } catch(err) { console.warn(err); }
+                await signInAnonymously(auth);
+                const progressDocRef = doc(db, 'trips', 'my-big-trip');
+                onSnapshot(progressDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        completedDays = docSnap.data().completedDays || 0;
+                        updateProgressBar();
+                        if (isInitialLoadingFinished) recalculateTotals(); 
                     }
                 });
-            } catch (error) {
-                console.warn(`Fichier ignoré : ${trackName} n'est pas accessible dans cet environnement de test.`);
-                updateStatus(`Erreur de lien pour ${trackName}.`, false);
-                
-                if (isInitial) {
-                    handleInitialProgress();
-                }
+            } catch (e) {
+                console.warn("Mode hors ligne.");
             }
         }
+        initCloud();
 
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            const fileUrl = URL.createObjectURL(file);
-            loadGpx(fileUrl, file.name, 'bike', 1000 + allGpxTracks.length, false);
-            e.target.value = ''; 
+        // === LOGIQUE METIER ===
+        document.getElementById('unlock-btn').addEventListener('click', () => {
+            if (document.getElementById('password-input').value === 'velo') {
+                document.getElementById('password-container').classList.add('hidden');
+                document.getElementById('loading-container').classList.remove('hidden');
+                document.getElementById('loading-container').classList.add('flex');
+                
+                if (tracesAutomatiques.length === 0) {
+                    forceUnlockMap();
+                    return;
+                }
+                
+                setTimeout(() => { if (!isInitialLoadingFinished) forceUnlockMap(); }, 8000);
+                
+                tracesAutomatiques.forEach(file => {
+                    const gpxLayer = new L.GPX(file, { async: true, polyline_options: { color: 'blue', weight: 4 } });
+                    gpxLayer.on('loaded', (e) => { handleInitialProgress(); });
+                    gpxLayer.on('error', (e) => { console.warn("Fichier introuvable/erreur :", file); handleInitialProgress(); });
+                    gpxLayer.addTo(gpxLayerGroup);
+                });
+            } else {
+                alert("Mot de passe incorrect.");
+            }
         });
 
-        // --- 5. INTERFACE ET CALCULS ---
-        function renderTrackList() {
-            trackListEl.innerHTML = '';
-            allGpxTracks.forEach(t => {
-                const isTrain = t.mode === 'train';
-                const div = document.createElement('div');
-                div.className = "gpx-list-item p-2 border rounded text-sm flex justify-between items-center bg-white";
-                div.innerHTML = `
-                    <div class="flex items-center gap-2 overflow-hidden">
-                        <span title="Changer le mode" class="cursor-pointer text-lg" onclick="toggleTrackMode(${t.id})">
-                            ${isTrain ? '🚆' : '🚲'}
-                        </span>
-                        <span class="truncate font-medium ${isTrain ? 'text-gray-400' : 'text-gray-700'}">${t.name}</span>
-                    </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <span class="text-xs text-gray-500 font-mono">${(t.gpx.get_distance() / 1000).toFixed(1)}km</span>
-                        <button onclick="removeTrack(${t.id})" class="text-red-500 hover:text-red-700 ml-2" title="Supprimer">✖</button>
-                    </div>
-                `;
-                trackListEl.appendChild(div);
-            });
-        }
-
-        window.toggleTrackMode = function(id) {
-            const track = allGpxTracks.find(t => t.id === id);
-            if (track) {
-                track.mode = track.mode === 'bike' ? 'train' : 'bike';
-                track.gpx.setStyle({
-                    color: track.mode === 'train' ? '#9ca3af' : '#2563eb',
-                    opacity: track.mode === 'train' ? 0.6 : 0.8,
-                    dashArray: track.mode === 'train' ? '8, 8' : null
-                });
-                renderTrackList();
-                recalculateTotals();
+        function handleInitialProgress() {
+            if (isInitialLoadingFinished) return;
+            initialLoadedCount++;
+            document.getElementById('loading-text').innerText = `Chargement (${initialLoadedCount}/${tracesAutomatiques.length})...`;
+            if (initialLoadedCount >= tracesAutomatiques.length) {
+                forceUnlockMap();
             }
         }
 
-        window.removeTrack = function(id) {
-            const index = allGpxTracks.findIndex(t => t.id === id);
-            if (index > -1) {
-                gpxLayerGroup.removeLayer(allGpxTracks[index].gpx);
-                allGpxTracks.splice(index, 1);
-                renderTrackList();
-                recalculateTotals();
+        function forceUnlockMap() {
+            isInitialLoadingFinished = true;
+            document.getElementById('lock-screen').style.display = 'none';
+            if (gpxLayerGroup.getLayers().length > 0) {
+                map.fitBounds(gpxLayerGroup.getBounds());
             }
-        };
+            recalculateTotals();
+            updateStatus("Prêt !");
+        }
 
-        const btnRecalc = document.getElementById('btn-recalc');
-        btnRecalc.addEventListener('click', () => {
-            updateStatus("Recalcul des étapes en cours...", true);
+        function updateProgressBar() {
+            if (totalCalculatedDays <= 0) return;
+            const pct = Math.min(100, Math.max(0, (completedDays / totalCalculatedDays) * 100));
+            document.getElementById('progress-bar').style.width = pct + '%';
+            document.getElementById('progress-text').innerText = Math.round(pct) + '% (' + completedDays + '/' + totalCalculatedDays + 'j)';
+        }
+
+        document.getElementById('btn-recalc').addEventListener('click', () => {
+            updateStatus("Recalcul en cours...", true);
             setTimeout(() => {
                 recalculateTotals();
-                updateStatus("Étapes mises à jour.", false, true);
-            }, 50);
+                updateStatus("Étapes mises à jour.");
+            }, 100);
         });
+
+        document.getElementById('btn-share').addEventListener('click', () => {
+            const url = new URL(window.location.href);
+            url.searchParams.set('visitor', 'true');
+            const dummy = document.createElement('input');
+            document.body.appendChild(dummy);
+            dummy.value = url.href;
+            dummy.select();
+            document.execCommand('copy');
+            document.body.removeChild(dummy);
+            updateStatus("Lien Visiteur copié !");
+        });
+
+        window.markDayCompleted = async function(day) {
+            if (isVisitorMode) return;
+            completedDays = day;
+            updateProgressBar();
+            map.closePopup();
+            updateStatus(`Étape J${day} validée !`);
+            
+            if (isFirebaseReady) {
+                try {
+                    await setDoc(doc(db, 'trips', 'my-big-trip'), { completedDays: day });
+                } catch (e) {}
+            }
+            recalculateTotals();
+        };
 
         function recalculateTotals() {
             let totalBikeDist = 0;
-            let totalEleUp = 0;
-            let totalEleDown = 0;
-            let combinedElevationData = [];
-            let combinedLabels = [];
-
-            let globalDistanceForChart = 0;
-
-            allGpxTracks.forEach(t => {
-                if (t.mode === 'bike') {
-                    let distKm = 0;
-                    try { distKm = (t.gpx.get_distance() || 0) / 1000; } catch(e) {}
-                    
-                    totalBikeDist += distKm;
-                    
-                    try { totalEleUp += t.gpx.get_elevation_gain() || 0; } catch(e) {}
-                    try { totalEleDown += t.gpx.get_elevation_loss() || 0; } catch(e) {}
-
-                    let eleData = [];
-                    try { eleData = t.gpx.get_elevation_data() || []; } catch(e) {}
-
-                    if (eleData && eleData.length > 0) {
-                        eleData.forEach(point => {
-                            combinedLabels.push((globalDistanceForChart + point[0]).toFixed(1));
-                            combinedElevationData.push(point[1]);
-                        });
-                        globalDistanceForChart += distKm;
-                    }
+            let totalBikeElev = 0;
+            let globalPoints = [];
+            
+            // Nettoyage des anciens marqueurs
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker && layer.options.icon && layer.options.icon.options.className && layer.options.icon.options.className.includes('milestone')) {
+                    map.removeLayer(layer);
                 }
             });
 
-            document.getElementById('stat-dist').innerText = totalBikeDist.toFixed(1) + ' km';
-            document.getElementById('stat-ele-up').innerText = totalEleUp.toFixed(0) + ' m';
-            document.getElementById('stat-ele-down').innerText = totalEleDown.toFixed(0) + ' m';
+            gpxLayerGroup.eachLayer(function(layer) {
+                try {
+                    const dist = layer.get_distance() / 1000;
+                    const elev = layer.get_elevation_gain();
+                    totalBikeDist += dist;
+                    totalBikeElev += isNaN(elev) ? 0 : elev;
+                    
+                    const layers = layer.getLayers();
+                    if (layers.length > 0 && layers[0].getLatLngs) {
+                        const coords = layers[0].getLatLngs();
+                        if (Array.isArray(coords[0])) {
+                            coords.forEach(segment => globalPoints.push(...segment));
+                        } else {
+                            globalPoints.push(...coords);
+                        }
+                    }
+                } catch (e) { console.warn("Tracé ignoré dans le calcul global"); }
+            });
 
-            // Paramètres mis à jour (70km, 450 min, 1350 max)
-            const kmPerDay = parseFloat(inputKmDay.value) || 70;
-            const kmMax = parseFloat(inputKmMax.value) || 120;
-            const eleMin = parseFloat(inputEleMin.value) || 450;
-            const eleMax = parseFloat(inputEleMax.value) || 1350;
-            const restDaysPerWeek = parseFloat(inputRestDays.value) || 0;
-            
-            const totalCyclingDays = drawMilestones(kmPerDay, kmMax, eleMin, eleMax, restDaysPerWeek);
-            
-            const cyclingDaysPerWeek = 7 - restDaysPerWeek;
-            
-            if (totalCyclingDays > 0 && cyclingDaysPerWeek > 0) {
-                const weeksNeeded = totalCyclingDays / cyclingDaysPerWeek;
-                const totalDays = weeksNeeded * 7;
-                document.getElementById('stat-days').innerText = Math.ceil(totalDays) + ' jours';
-            } else {
-                document.getElementById('stat-days').innerText = '0 jours';
-            }
+            document.getElementById('total-dist').innerText = Math.round(totalBikeDist) + ' km';
+            document.getElementById('total-elev').innerText = Math.round(totalBikeElev) + ' m';
 
-            updateElevationChart(combinedLabels, combinedElevationData);
+            totalCalculatedDays = drawMilestonesAndGetDays(globalPoints);
+            document.getElementById('total-time').innerText = totalCalculatedDays + ' jours';
+            updateProgressBar();
+            drawElevationChart(globalPoints);
         }
 
-        // --- 6. GRAPHIQUE D'ALTITUDE ---
-        function updateElevationChart(labels, data) {
-            if (typeof Chart === 'undefined') {
-                console.warn("Le graphique est en cours de chargement...");
-                return;
-            }
-
-            const ctx = document.getElementById('elevationChart').getContext('2d');
+        function drawMilestonesAndGetDays(points) {
+            if (!points || points.length === 0) return 0;
             
-            if (elevationChartObj) {
-                elevationChartObj.destroy();
+            const targetDist = parseFloat(document.getElementById('target-dist').value) || 70;
+            const targetElevMin = parseFloat(document.getElementById('target-elev-min').value) || 450;
+            const targetElevMax = parseFloat(document.getElementById('target-elev-max').value) || 1350;
+            const restDaysPerWeek = parseInt(document.getElementById('rest-days').value) || 2;
+            const activeDaysPerWeek = 7 - restDaysPerWeek;
+            const absoluteMaxDist = targetDist * 1.5;
+
+            let currentDayDist = 0;
+            let currentDayElev = 0;
+            let bikeDayCount = 1;
+            let totalRealDays = 1;
+            
+            for (let i = 1; i < points.length; i++) {
+                const prev = points[i-1];
+                const curr = points[i];
+                
+                const d = map.distance(prev, curr) / 1000;
+                currentDayDist += d;
+                
+                if (curr.meta && curr.meta.ele && prev.meta && prev.meta.ele) {
+                    const eleDiff = curr.meta.ele - prev.meta.ele;
+                    if (eleDiff > 0) currentDayElev += eleDiff;
+                }
+
+                let endOfDay = false;
+                if (currentDayElev >= targetElevMax) endOfDay = true;
+                else if (currentDayDist >= targetDist && currentDayElev >= targetElevMin) endOfDay = true;
+                else if (currentDayDist >= absoluteMaxDist) endOfDay = true;
+
+                if (endOfDay && i < points.length - 1) {
+                    const isCompleted = totalRealDays <= completedDays;
+                    const colorClass = isCompleted ? 'completed' : '';
+                    const icon = L.divIcon({
+                        className: `milestone-icon ${colorClass}`,
+                        html: `J${totalRealDays}`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    });
+                    
+                    const marker = L.marker([curr.lat, curr.lng], {icon: icon}).addTo(map);
+                    
+                    let popupHtml = `<b>Fin du Jour ${totalRealDays}</b><br>Dist: ${Math.round(currentDayDist)}km<br>D+: ${Math.round(currentDayElev)}m`;
+                    if (!isVisitorMode && !isCompleted) {
+                        popupHtml += `<br><button onclick="markDayCompleted(${totalRealDays})" class="mt-2 bg-green-500 text-white px-2 py-1 rounded text-xs w-full">Valider cette étape</button>`;
+                    }
+                    marker.bindPopup(popupHtml);
+                    
+                    currentDayDist = 0;
+                    currentDayElev = 0;
+                    bikeDayCount++;
+                    
+                    const completedWeeks = Math.floor((bikeDayCount - 1) / activeDaysPerWeek);
+                    totalRealDays = bikeDayCount + (completedWeeks * restDaysPerWeek);
+                }
+            }
+            return totalRealDays;
+        }
+
+        // === MASQUAGE JALONS SUR DEZOOM ===
+        map.on('zoomend', function() {
+            const currentZoom = map.getZoom();
+            const milestonesHidden = currentZoom < 7;
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker && layer.options.icon && layer.options.icon.options.className && layer.options.icon.options.className.includes('milestone-icon')) {
+                    if (layer._icon) {
+                        layer._icon.style.display = milestonesHidden ? 'none' : 'block';
+                    }
+                }
+            });
+        });
+
+        // === GRAPHIQUE DÉNIVELÉ INTÉRACTIF ===
+        let elevChart;
+        function drawElevationChart(points) {
+            const ctx = document.getElementById('elevationChart').getContext('2d');
+            if (elevChart) elevChart.destroy();
+            
+            let distances = [];
+            let elevations = [];
+            chartLatLngs = [];
+            let cumulativeDist = 0;
+            
+            let samplingRate = Math.max(1, Math.floor(points.length / 200));
+            
+            for (let i = 0; i < points.length; i += samplingRate) {
+                if (i > 0) cumulativeDist += (map.distance(points[i-1], points[i]) / 1000) * samplingRate;
+                distances.push(cumulativeDist.toFixed(1));
+                chartLatLngs.push(points[i]);
+                elevations.push(points[i].meta && points[i].meta.ele ? points[i].meta.ele : 0);
             }
 
-            if (data.length === 0) return;
-
-            elevationChartObj = new Chart(ctx, {
+            elevChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels: distances,
                     datasets: [{
                         label: 'Altitude (m)',
-                        data: data,
-                        borderColor: '#2563eb',
-                        backgroundColor: 'rgba(37, 99, 235, 0.2)',
-                        borderWidth: 2,
+                        data: elevations,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
                         fill: true,
                         pointRadius: 0,
-                        tension: 0.1
+                        pointHoverRadius: 5
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { ticks: { maxTicksLimit: 10, callback: function(val, index) { return labels[index] + 'km'; } } },
-                        y: { beginAtZero: true }
-                    }
-                }
-            });
-        }
-
-        // --- 7. JALONS KILOMÉTRIQUES (ÉTAPES) ---
-        function drawMilestones(baseKm, maxKm, minEle, maxEle, restDaysPerWeek = 0) {
-            milestonesLayerGroup.clearLayers();
-            if (baseKm <= 0 || allGpxTracks.length === 0) return 0;
-
-            let currentDay = 1;
-            let dayDistKm = 0;
-            let dayEleUp = 0;
-            let hasBikeTracks = false;
-
-            allGpxTracks.forEach(t => {
-                if (t.mode === 'train') return; 
-                hasBikeTracks = true;
-
-                let points = [];
-                
-                function extractPts(layer) {
-                    if (layer instanceof L.Polyline) {
-                        const latlngs = layer.getLatLngs();
-                        const flatten = (arr) => {
-                            arr.forEach(item => {
-                                if (Array.isArray(item)) flatten(item);
-                                else if (item && item.lat && item.lng) {
-                                    points.push(item);
-                                }
-                            });
-                        };
-                        flatten(latlngs);
-                    }
-                    if (layer && typeof layer.eachLayer === 'function') {
-                        layer.eachLayer(extractPts);
-                    }
-                }
-                
-                extractPts(t.gpx);
-
-                if (points.length < 2) return;
-
-                for (let i = 0; i < points.length - 1; i++) {
-                    const p1 = points[i];
-                    const p2 = points[i+1];
-                    
-                    const segmentDistKm = p1.distanceTo(p2) / 1000;
-                    if (segmentDistKm <= 0) continue;
-
-                    const ele1 = p1.alt || p1.meta?.ele || 0;
-                    const ele2 = p2.alt || p2.meta?.ele || ele1;
-                    const segmentEleUp = Math.max(0, ele2 - ele1);
-
-                    let newDist = dayDistKm + segmentDistKm;
-                    let newEle = dayEleUp + segmentEleUp;
-
-                    let stopFractions = [];
-
-                    if (newEle >= maxEle && maxEle > 0) {
-                        let f = segmentEleUp > 0 ? (maxEle - dayEleUp) / segmentEleUp : 1;
-                        stopFractions.push(f);
-                    }
-                    if (newDist >= maxKm && maxKm > 0) {
-                        let f = segmentDistKm > 0 ? (maxKm - dayDistKm) / segmentDistKm : 1;
-                        stopFractions.push(f);
-                    }
-                    if (newDist >= baseKm && newEle >= minEle) {
-                        let fBaseKm = segmentDistKm > 0 ? (baseKm - dayDistKm) / segmentDistKm : 0;
-                        let fMinEle = segmentEleUp > 0 ? (minEle - dayEleUp) / segmentEleUp : 0;
-                        let f = Math.max(fBaseKm, fMinEle);
-                        stopFractions.push(f);
-                    }
-
-                    if (stopFractions.length > 0) {
-                        let fraction = Math.min(...stopFractions);
-                        if (fraction < 0) fraction = 0;
-                        if (fraction > 1) fraction = 1;
-
-                        const lat = p1.lat + (p2.lat - p1.lat) * fraction;
-                        const lng = p1.lng + (p2.lng - p1.lng) * fraction;
-                        
-                        const finalDayDist = dayDistKm + (segmentDistKm * fraction);
-                        const finalDayEle = dayEleUp + (segmentEleUp * fraction);
-
-                        let displayDay = currentDay;
-                        if (restDaysPerWeek > 0 && restDaysPerWeek < 7) {
-                            const cyclingDaysPerWeek = 7 - restDaysPerWeek;
-                            const completedWeeks = Math.floor((currentDay - 1) / cyclingDaysPerWeek);
-                            const dayInCurrentWeek = ((currentDay - 1) % cyclingDaysPerWeek) + 1;
-                            displayDay = (completedWeeks * 7) + dayInCurrentWeek;
+                    onClick: (e, activeEls) => {
+                        if (activeEls.length > 0) {
+                            const index = activeEls[0].index;
+                            const targetLatLng = chartLatLngs[index];
+                            if (targetLatLng) {
+                                map.flyTo(targetLatLng, 13, { duration: 1.5 });
+                            }
                         }
-
-                        const icon = L.divIcon({
-                            className: 'custom-div-icon',
-                            html: `<div class='milestone-label cursor-pointer transition-transform hover:scale-110 hover:bg-blue-50' title='Cliquez pour voir le bilan'>J${displayDay}</div>`,
-                            iconSize: [30, 30],
-                            iconAnchor: [15, 15]
-                        });
-                        
-                        const marker = L.marker([lat, lng], {icon: icon}).addTo(milestonesLayerGroup);
-                        
-                        marker.bindPopup(`
-                            <div class="text-center font-sans p-1 min-w-[150px]">
-                                <b class="text-lg text-blue-600 mb-2 block">Bilan Jour ${displayDay}</b>
-                                <div class="text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 text-left">
-                                    🚴 <b>${finalDayDist.toFixed(1)}</b> km parcourus<br>
-                                    🏔️ <b>${finalDayEle.toFixed(0)}</b> m de D+
-                                </div>
-                            </div>
-                        `);
-
-                        currentDay++;
-                        dayDistKm = segmentDistKm * (1 - fraction);
-                        dayEleUp = segmentEleUp * (1 - fraction);
-                    } else {
-                        dayDistKm = newDist;
-                        dayEleUp = newEle;
-                    }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: { beginAtZero: true }
+                    },
+                    plugins: { legend: { display: false } }
                 }
             });
-            
-            if (!hasBikeTracks) return 0;
-            
-            if (dayDistKm > 0.1) {
-                return currentDay;
-            } else {
-                return Math.max(1, currentDay - 1);
-            }
         }
-
-        // --- 8. RECHERCHE DE POI (API OVERPASS) ---
-        btnSearchPoi.addEventListener('click', () => {
-            if (allGpxTracks.length === 0) {
-                alert("Importez au moins un tracé GPX d'abord.");
-                return;
-            }
-
-            updateStatus("Recherche des lieux en cours...", true);
-            poiLayerGroup.clearLayers();
-
-            const bounds = gpxLayerGroup.getBounds();
-            const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-            
-            let queries = [];
-            if (document.getElementById('check-camp').checked) {
-                queries.push(`node["tourism"="camp_site"](${bbox});`);
-                queries.push(`way["tourism"="camp_site"](${bbox});`);
-            }
-            if (document.getElementById('check-water').checked) {
-                queries.push(`node["amenity"="drinking_water"](${bbox});`);
-            }
-            if (document.getElementById('check-bike').checked) {
-                queries.push(`node["shop"="bicycle"](${bbox});`);
-            }
-
-            if (queries.length === 0) {
-                updateStatus("Cochez au moins une option pour chercher.", false);
-                return;
-            }
-
-            const query = `[out:json][timeout:50];(${queries.join('')});out center;`;
-
-            fetch('https://overpass-api.de/api/interpreter', {
-                method: 'POST',
-                body: query
-            })
-            .then(res => {
-                if (!res.ok) throw new Error("Erreur serveur principal");
-                return res.json();
-            })
-            .catch(() => {
-                return fetch('https://overpass.openstreetmap.fr/api/interpreter', {
-                    method: 'POST',
-                    body: query
-                }).then(res => res.json());
-            })
-            .then(data => {
-                let count = 0;
-                data.elements.forEach(element => {
-                    const lat = element.lat || element.center.lat;
-                    const lon = element.lon || element.center.lon;
-                    const tags = element.tags || {};
-                    const name = tags.name || "Inconnu";
-                    
-                    let iconText = "📍";
-                    let typeText = "Lieu";
-                    if (tags.tourism === 'camp_site') { iconText = "⛺"; typeText = "Camping"; }
-                    if (tags.amenity === 'drinking_water') { iconText = "💧"; typeText = "Eau Potable"; }
-                    if (tags.shop === 'bicycle') { iconText = "🛠️"; typeText = "Magasin/Réparation Vélo"; }
-
-                    const openingHours = tags.opening_hours ? `<br><i>Horaires: ${tags.opening_hours}</i>` : '';
-
-                    const myIcon = L.divIcon({
-                        html: `<div style="font-size:20px; background:white; border-radius:50%; width:24px; height:24px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.3); line-height:24px;">${iconText}</div>`,
-                        className: '',
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
-                    });
-
-                    L.marker([lat, lon], {icon: myIcon})
-                     .bindPopup(`<b>${iconText} ${typeText}</b><br>${name}${openingHours}`)
-                     .addTo(poiLayerGroup);
-                    count++;
-                });
-                updateStatus(`${count} lieux trouvés.`, false, true);
-            })
-            .catch(error => {
-                console.error(error);
-                updateStatus("Erreur ou zone de recherche trop vaste. Zoomez et réessayez.", false);
-            });
-        });
-
-        // --- 9. BOUTONS FLOTTANTS (GÉOLOC ET MÉTÉO) ---
-        document.getElementById('btn-geoloc').addEventListener('click', () => {
-            map.locate({setView: true, maxZoom: 14});
-        });
-
-        map.on('locationfound', function(e) {
-            if (userLocationMarker) map.removeLayer(userLocationMarker);
-            
-            const myLocIcon = L.divIcon({
-                html: `<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-md relative">
-                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                       </div>`,
-                className: '', iconSize: [16, 16], iconAnchor: [8, 8]
-            });
-
-            userLocationMarker = L.marker(e.latlng, {icon: myLocIcon}).addTo(map)
-                .bindPopup("Vous êtes ici").openPopup();
-        });
-
-        map.on('locationerror', function(e) {
-            alert("Impossible d'accéder à votre position. Vérifiez les permissions du navigateur.");
-        });
-
-        document.getElementById('btn-weather').addEventListener('click', () => {
-            const center = map.getCenter();
-            updateStatus("Récupération de la météo...", true);
-
-            fetch(`https://api.open-meteo.com/v1/forecast?latitude=${center.lat}&longitude=${center.lng}&current_weather=true`)
-                .then(res => res.json())
-                .then(data => {
-                    const weather = data.current_weather;
-                    const temp = weather.temperature;
-                    const windSpeed = weather.windspeed;
-                    const windDir = weather.winddirection;
-                    
-                    L.popup()
-                        .setLatLng(center)
-                        .setContent(`
-                            <div class="text-center font-sans">
-                                <b class="text-lg text-blue-600">Météo Locale</b><br>
-                                <div class="text-2xl font-bold mt-2">${temp}°C</div>
-                                <div class="mt-2 text-sm text-gray-600">Vent : ${windSpeed} km/h</div>
-                                <div class="mt-1" style="transform: rotate(${windDir}deg); display: inline-block; font-size: 20px;">⬇️</div>
-                                <div class="text-xs text-gray-400 mt-1">(La flèche indique la direction vers laquelle le vent souffle)</div>
-                            </div>
-                        `)
-                        .openOn(map);
-                    updateStatus("Météo récupérée.", false, true);
-                })
-                .catch(() => updateStatus("Erreur météo.", false));
-        });
-
     </script>
 </body>
 </html>
