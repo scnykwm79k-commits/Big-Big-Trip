@@ -166,6 +166,23 @@
             <label class="block text-sm font-medium text-gray-700 mb-1">Jours de pause (par sem.)</label>
             <input type="number" id="rest-days" value="2" class="w-full border rounded p-2 text-gray-800">
         </div>
+
+        <!-- MODULE D'EXCEPTIONS -->
+        <div class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded">
+            <label class="block text-sm font-bold text-gray-700 mb-2">Forcer une distance</label>
+            <div class="flex gap-2 mb-2">
+                <div class="w-1/2 flex items-center bg-white border rounded px-2">
+                    <span class="text-gray-400 font-bold mr-1">J</span>
+                    <input type="number" id="override-day" placeholder="Ex: 3" class="w-full py-1 outline-none text-gray-800 text-sm">
+                </div>
+                <div class="w-1/2 flex items-center bg-white border rounded px-2">
+                    <input type="number" id="override-dist" placeholder="Ex: 100" class="w-full py-1 outline-none text-gray-800 text-sm">
+                    <span class="text-gray-400 text-sm ml-1">km</span>
+                </div>
+                <button id="btn-add-override" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 font-bold transition">+</button>
+            </div>
+            <ul id="overrides-list" class="text-sm text-gray-600 space-y-1 mt-2 empty:hidden"></ul>
+        </div>
         
         <button id="btn-recalc" class="w-full bg-blue-100 text-blue-700 hover:bg-blue-200 font-semibold py-2 rounded mb-6 transition">🔄 Recalculer les étapes</button>
 
@@ -241,6 +258,48 @@
         const urlParams = new URLSearchParams(window.location.search);
         const isVisitorMode = urlParams.has('visitor');
         
+        // EXCEPTIONS D'ÉTAPES
+        let stepOverrides = {};
+        
+        const overrideDayInput = document.getElementById('override-day');
+        const overrideDistInput = document.getElementById('override-dist');
+        const overridesList = document.getElementById('overrides-list');
+
+        document.getElementById('btn-add-override').addEventListener('click', () => {
+            const day = parseInt(overrideDayInput.value);
+            const dist = parseFloat(overrideDistInput.value);
+            if (day > 0 && dist > 0) {
+                stepOverrides[day] = dist;
+                overrideDayInput.value = '';
+                overrideDistInput.value = '';
+                renderOverrides();
+                if (isInitialLoadingFinished) {
+                    updateStatus("Recalcul avec exception...", true);
+                    setTimeout(() => { recalculateTotals(); updateStatus("Étape modifiée !"); }, 100);
+                }
+            }
+        });
+
+        window.removeOverride = function(day) {
+            delete stepOverrides[day];
+            renderOverrides();
+            if (isInitialLoadingFinished) {
+                updateStatus("Recalcul des étapes...", true);
+                setTimeout(() => { recalculateTotals(); updateStatus("Exception retirée !"); }, 100);
+            }
+        };
+
+        function renderOverrides() {
+            overridesList.innerHTML = '';
+            for (const [day, dist] of Object.entries(stepOverrides)) {
+                overridesList.innerHTML += `
+                <li class="flex justify-between items-center bg-white p-1 px-2 rounded border border-gray-200">
+                    <span>Étape <b>J${day}</b> forcée à <b>${dist}km</b></span>
+                    <button onclick="removeOverride(${day})" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">&times;</button>
+                </li>`;
+            }
+        }
+
         // GESTION DE LA DATE DE DEPART
         const startDateInput = document.getElementById('start-date');
         const todayStr = new Date().toISOString().split('T')[0];
@@ -251,7 +310,7 @@
             if (isInitialLoadingFinished) recalculateTotals();
         });
 
-        // RECUPERATION DE LA PROGRESSION (Lien URL ou Stockage Local)
+        // RECUPERATION DE LA PROGRESSION
         let completedDays = parseInt(localStorage.getItem('my_bike_trip_progress')) || 0;
         if (urlParams.has('progress')) {
             completedDays = parseInt(urlParams.get('progress')) || 0;
@@ -341,7 +400,6 @@
                 tracesAutomatiques.forEach(file => {
                     const isTrain = file.mode === 'train';
                     
-                    // Sécurisation de l'URL pour gérer les espaces ET les environnements de test (blob/srcdoc)
                     let baseUri = window.location.href;
                     if (baseUri.startsWith('blob:') || baseUri.startsWith('about:')) {
                         baseUri = 'https://localhost/'; // Empêche le crash dans les bacs à sable web
@@ -398,7 +456,6 @@
             if (totalCalculatedDays <= 0) return;
             const pct = Math.min(100, Math.max(0, (completedDays / totalCalculatedDays) * 100));
             
-            // Calcul de la date de fin estimée
             let startStr = isVisitorMode && urlParams.has('start') ? urlParams.get('start') : startDateInput.value;
             let endDate = new Date(startStr);
             endDate.setDate(endDate.getDate() + totalCalculatedDays - 1);
@@ -459,11 +516,10 @@
                 return;
             }
             updateStatus("Recherche en cours...", true);
-            poiLayerGroup.clearLayers(); // Nettoie les anciennes recherches
+            poiLayerGroup.clearLayers(); 
             
             const bounds = map.getBounds();
             const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-            // Requête pour trouver les campings et points d'eau potable
             const query = `
                 [out:json][timeout:25];
                 (
@@ -490,7 +546,6 @@
                         const colorClass = isWater ? 'bg-blue-500' : 'bg-emerald-600';
                         const title = el.tags.name || (isWater ? 'Point d\'eau potable' : 'Camping');
                         
-                        // Création d'une icône CSS personnalisée pour ne pas être effacée par le filtre anti-Komoot
                         const icon = L.divIcon({
                             className: '',
                             html: `<div class="${colorClass} text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md border-2 border-white">${iconHtml}</div>`,
@@ -615,7 +670,6 @@
             const restDaysPerWeek = parseInt(document.getElementById('rest-days').value) || 2;
             const activeDaysPerWeek = 7 - restDaysPerWeek;
 
-            // Calcul date de base
             let startStr = isVisitorMode && urlParams.has('start') ? urlParams.get('start') : startDateInput.value;
             let baseDate = new Date(startStr);
 
@@ -648,9 +702,19 @@
                 lastBikePoint = curr;
 
                 let endOfDay = false;
-                if (currentDayElev >= targetElevMax) endOfDay = true;
-                else if (currentDayDist >= targetDist && currentDayElev >= targetElevMin) endOfDay = true;
-                else if (currentDayDist >= absoluteMaxDist) endOfDay = true;
+                
+                // VÉRIFICATION D'UNE EXCEPTION POUR CE JOUR
+                let overrideDist = stepOverrides[totalRealDays];
+
+                if (overrideDist) {
+                    // Si le jour est forcé, on ignore le dénivelé et on coupe à la distance demandée
+                    if (currentDayDist >= overrideDist) endOfDay = true;
+                } else {
+                    // Si pas d'exception, on applique la règle d'or standard
+                    if (currentDayElev >= targetElevMax) endOfDay = true;
+                    else if (currentDayDist >= targetDist && currentDayElev >= targetElevMin) endOfDay = true;
+                    else if (currentDayDist >= absoluteMaxDist) endOfDay = true;
+                }
 
                 if (endOfDay) {
                     const isCompleted = totalRealDays <= completedDays;
@@ -664,12 +728,13 @@
                     
                     const marker = L.marker([curr.lat, curr.lng], {icon: icon}).addTo(map);
                     
-                    // Calcul de la date de l'étape
                     const milestoneDate = new Date(baseDate);
                     milestoneDate.setDate(baseDate.getDate() + totalRealDays - 1);
                     const dateStr = milestoneDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
                     
                     let popupHtml = `<b>Étape J${totalRealDays} • ${dateStr}</b><br>Dist: ${Math.round(currentDayDist)}km<br>D+: ${Math.round(currentDayElev)}m`;
+                    if (overrideDist) popupHtml += `<br><span class="text-xs text-orange-600 font-bold">⚠️ Étape modifiée manuellement</span>`;
+                    
                     if (!isVisitorMode) {
                         if (!isCompleted) {
                             popupHtml += `<br><button onclick="markDayCompleted(${totalRealDays})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
