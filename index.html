@@ -144,7 +144,7 @@
         
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Date de départ</label>
-            <input type="date" id="start-date" class="w-full border rounded p-2 text-gray-800">
+            <input type="date" id="start-date" value="2027-08-01" class="w-full border rounded p-2 text-gray-800">
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Km cible / jour</label>
@@ -156,7 +156,7 @@
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Min (m)</label>
-            <input type="number" id="target-elev-min" value="450" class="w-full border rounded p-2 text-gray-800">
+            <input type="number" id="target-elev-min" value="400" class="w-full border rounded p-2 text-gray-800">
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Max (m)</label>
@@ -302,8 +302,8 @@
 
         // GESTION DE LA DATE DE DEPART
         const startDateInput = document.getElementById('start-date');
-        const todayStr = new Date().toISOString().split('T')[0];
-        startDateInput.value = localStorage.getItem('my_bike_trip_start') || todayStr;
+        // const todayStr = new Date().toISOString().split('T')[0];
+        startDateInput.value = localStorage.getItem('my_bike_trip_start') || startDateInput.value;
 
         startDateInput.addEventListener('change', (e) => {
             localStorage.setItem('my_bike_trip_start', e.target.value);
