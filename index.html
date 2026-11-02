@@ -144,6 +144,7 @@
         
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Date de départ</label>
+            <!-- Ajoutez votre date ici au format AAAA-MM-JJ -->
             <input type="date" id="start-date" value="2027-08-01" class="w-full border rounded p-2 text-gray-800">
         </div>
         <div class="mb-4">
@@ -156,7 +157,7 @@
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Min (m)</label>
-            <input type="number" id="target-elev-min" value="400" class="w-full border rounded p-2 text-gray-800">
+            <input type="number" id="target-elev-min" value="450" class="w-full border rounded p-2 text-gray-800">
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Dénivelé Max (m)</label>
@@ -184,6 +185,22 @@
             <ul id="overrides-list" class="text-sm text-gray-600 space-y-1 mt-2 empty:hidden"></ul>
         </div>
         
+        <!-- MODULE GESTION DES TRACÉS GPX -->
+        <div class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded">
+            <label class="block text-sm font-bold text-gray-700 mb-2">Tracés GPX</label>
+            <ul id="gpx-list" class="text-xs text-gray-600 space-y-1 mb-3 empty:hidden"></ul>
+            <div class="flex flex-col gap-2">
+                <input type="text" id="gpx-nom" placeholder="Nom (ex: Étape 10)" class="w-full p-2 border rounded text-sm outline-none">
+                <input type="text" id="gpx-url" placeholder="Nom du fichier (ex: etape10.gpx)" class="w-full p-2 border rounded text-sm outline-none">
+                <select id="gpx-mode" class="w-full p-2 border rounded text-sm outline-none text-gray-700">
+                    <option value="bike">🚲 Vélo (Bleu)</option>
+                    <option value="train">🚆 Train (Rouge)</option>
+                </select>
+                <button id="btn-add-gpx" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded transition">Ajouter le tracé</button>
+            </div>
+            <p class="text-[10px] text-gray-400 mt-2 italic">* La page devra être rafraîchie après une modification de tracé.</p>
+        </div>
+
         <button id="btn-recalc" class="w-full bg-blue-100 text-blue-700 hover:bg-blue-200 font-semibold py-2 rounded mb-6 transition">🔄 Recalculer les étapes</button>
 
         <div class="bg-gray-100 p-4 rounded mb-6">
@@ -241,7 +258,7 @@
         }
 
         // === VARIABLES GLOBALES ===
-        const tracesAutomatiques = [
+        const defaultTraces = [
             { url: '2026-08-12_3192717650_Big Big Trip - Annecy to Zurich - komoot.gpx', nom: 'Annecy-Zurich', mode: 'bike' },
             { url: '2026-10-20_3192771285_Big Big Trip - Zurich to Venise - komoot.gpx', nom: 'Zurich-Venise', mode: 'bike' },
             { url: '2026-10-30_3372877022_TRAIN VENISE - komoot (1).gpx', nom: 'Train-Italie', mode: 'train' },
@@ -252,14 +269,20 @@
             { url: '2026-10-20_3358792947_Big Big Trip - Istanbul à Konya - komoot.gpx', nom: 'Istambul-Konya', mode: 'bike' },
             { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' }
         ];
+
+        let tracesAutomatiques = JSON.parse(localStorage.getItem('my_bike_trip_gpx'));
+        if (!tracesAutomatiques || tracesAutomatiques.length === 0) {
+            tracesAutomatiques = defaultTraces;
+            localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
+        }
         
         let initialLoadedCount = 0;
         let isInitialLoadingFinished = false;
         const urlParams = new URLSearchParams(window.location.search);
         const isVisitorMode = urlParams.has('visitor');
         
-        // EXCEPTIONS D'ÉTAPES
-        let stepOverrides = {};
+        // EXCEPTIONS D'ÉTAPES (AVEC CACHE LOCAL)
+        let stepOverrides = JSON.parse(localStorage.getItem('my_bike_trip_overrides')) || {};
         
         const overrideDayInput = document.getElementById('override-day');
         const overrideDistInput = document.getElementById('override-dist');
@@ -270,6 +293,7 @@
             const dist = parseFloat(overrideDistInput.value);
             if (day > 0 && dist > 0) {
                 stepOverrides[day] = dist;
+                localStorage.setItem('my_bike_trip_overrides', JSON.stringify(stepOverrides));
                 overrideDayInput.value = '';
                 overrideDistInput.value = '';
                 renderOverrides();
@@ -282,6 +306,7 @@
 
         window.removeOverride = function(day) {
             delete stepOverrides[day];
+            localStorage.setItem('my_bike_trip_overrides', JSON.stringify(stepOverrides));
             renderOverrides();
             if (isInitialLoadingFinished) {
                 updateStatus("Recalcul des étapes...", true);
@@ -299,10 +324,47 @@
                 </li>`;
             }
         }
+        renderOverrides(); // Initialisation au chargement
+
+        // GESTION DES TRACÉS GPX (UI)
+        const gpxList = document.getElementById('gpx-list');
+        function renderGPX() {
+            gpxList.innerHTML = '';
+            tracesAutomatiques.forEach((trace, idx) => {
+                const icon = trace.mode === 'train' ? '🚆' : '🚲';
+                gpxList.innerHTML += `
+                <li class="flex justify-between items-center bg-white p-1 px-2 rounded border border-gray-200">
+                    <span class="truncate w-4/5 text-[11px]" title="${trace.url}"><b>${icon} ${trace.nom}</b></span>
+                    <button onclick="removeGPX(${idx})" class="text-red-500 font-bold px-1 hover:bg-red-50 rounded">&times;</button>
+                </li>`;
+            });
+        }
+        
+        window.removeGPX = function(idx) {
+            tracesAutomatiques.splice(idx, 1);
+            localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
+            renderGPX();
+            updateStatus("Tracé supprimé. Rafraîchissez la page !");
+        };
+
+        document.getElementById('btn-add-gpx').addEventListener('click', () => {
+            const nom = document.getElementById('gpx-nom').value;
+            const url = document.getElementById('gpx-url').value;
+            const mode = document.getElementById('gpx-mode').value;
+            if (nom && url) {
+                tracesAutomatiques.push({ nom, url, mode });
+                localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
+                document.getElementById('gpx-nom').value = '';
+                document.getElementById('gpx-url').value = '';
+                renderGPX();
+                updateStatus("Tracé ajouté. Rafraîchissez la page !");
+            }
+        });
+        renderGPX(); // Initialisation au chargement
 
         // GESTION DE LA DATE DE DEPART
         const startDateInput = document.getElementById('start-date');
-        // const todayStr = new Date().toISOString().split('T')[0];
+        // Utilise la mémoire locale OU la date par défaut écrite dans le HTML ci-dessus
         startDateInput.value = localStorage.getItem('my_bike_trip_start') || startDateInput.value;
 
         startDateInput.addEventListener('change', (e) => {
@@ -326,6 +388,15 @@
                 completedDays = parseInt(e.newValue) || 0;
                 updateProgressBar();
                 if (isInitialLoadingFinished) recalculateTotals(); 
+            }
+            if (e.key === 'my_bike_trip_overrides') {
+                stepOverrides = JSON.parse(e.newValue) || {};
+                renderOverrides();
+                if (isInitialLoadingFinished) recalculateTotals();
+            }
+            if (e.key === 'my_bike_trip_gpx') {
+                tracesAutomatiques = JSON.parse(e.newValue) || defaultTraces;
+                renderGPX();
             }
         });
 
