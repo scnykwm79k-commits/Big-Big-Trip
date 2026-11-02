@@ -443,7 +443,31 @@
                 const progressDocRef = doc(db, 'trips', 'my-big-trip');
                 onSnapshot(progressDocRef, (docSnap) => {
                     if (docSnap.exists()) {
-                        completedDays = docSnap.data().completedDays || 0;
+                        const data = docSnap.data();
+                        
+                        // 1. MAJ Progression
+                        if (data.completedDays !== undefined) completedDays = data.completedDays;
+                        
+                        // 2. MAJ Date de départ
+                        if (data.startDate) {
+                            startDateInput.value = data.startDate;
+                            localStorage.setItem('my_bike_trip_start', data.startDate);
+                        }
+
+                        // 3. MAJ Exceptions d'étapes
+                        if (data.stepOverrides) {
+                            stepOverrides = data.stepOverrides;
+                            localStorage.setItem('my_bike_trip_overrides', JSON.stringify(stepOverrides));
+                            renderOverrides();
+                        }
+
+                        // 4. MAJ Liste des tracés GPX
+                        if (data.gpxList) {
+                            tracesAutomatiques = data.gpxList;
+                            localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
+                            renderGPX();
+                        }
+
                         updateProgressBar();
                         if (isInitialLoadingFinished) recalculateTotals(); 
                     }
@@ -646,11 +670,7 @@
             map.closePopup();
             updateStatus(`Étape J${day} validée !`);
             
-            if (isFirebaseReady) {
-                try {
-                    await setDoc(doc(db, 'trips', 'my-big-trip'), { completedDays: day });
-                } catch (e) {}
-            }
+            saveToCloud({ completedDays: day });
             recalculateTotals();
         };
 
@@ -665,11 +685,7 @@
             map.closePopup();
             updateStatus(`Retour à l'étape J${completedDays}`);
             
-            if (isFirebaseReady) {
-                try {
-                    await setDoc(doc(db, 'trips', 'my-big-trip'), { completedDays: completedDays });
-                } catch (e) {}
-            }
+            saveToCloud({ completedDays: completedDays });
             recalculateTotals();
         };
 
