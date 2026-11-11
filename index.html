@@ -64,6 +64,27 @@
             border: 2px solid white; cursor: pointer;
         }
         .milestone-icon.completed { background-color: #16a34a; }
+
+        /* Point bleu "vous êtes ici" */
+        .gps-dot {
+            width: 18px; height: 18px; border-radius: 50%;
+            background: #2563eb; border: 3px solid white;
+            box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.6);
+            animation: gps-pulse 2s infinite;
+        }
+        @keyframes gps-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.6); }
+            70%  { box-shadow: 0 0 0 14px rgba(37, 99, 235, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        }
+        @media (prefers-reduced-motion: reduce) { .gps-dot { animation: none; } }
+
+        /* Dernière position partagée (vue par les visiteurs) */
+        .shared-pos {
+            width: 32px; height: 32px; line-height: 28px; text-align: center; font-size: 18px;
+            background: white; border: 2px solid #f97316; border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+        }
     </style>
 </head>
 <body>
@@ -174,8 +195,18 @@
 
         <h2 class="text-2xl font-bold mb-4 text-blue-600">Outils Locaux</h2>
         <button id="btn-weather" class="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 font-semibold py-2 rounded mb-4 transition">🌤️ Météo au centre</button>
-        <button id="btn-pois" class="w-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold py-2 rounded mb-6 transition">🏕️ Campings & Eau (Zoomer avant)</button>
+        <button id="btn-pois" class="w-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold py-2 rounded mb-4 transition">🏕️ Campings & Eau (Zoomer avant)</button>
+        <button id="btn-gps" class="w-full bg-blue-100 text-blue-700 hover:bg-blue-200 font-semibold py-2 rounded mb-3 transition">📍 Afficher ma position</button>
+        <label class="flex items-start gap-2 text-sm text-gray-700 mb-6 cursor-pointer">
+            <input type="checkbox" id="share-gps" class="mt-1">
+            <span>Partager ma position avec les visiteurs
+                <span class="block text-[11px] text-gray-400">Envoyée toutes les 5 min ou tous les 500 m, tant que la page est ouverte sur cet appareil.</span>
+            </span>
+        </label>
     </div>
+
+    <!-- Bouton visiteur : centrer sur le cycliste -->
+    <button id="btn-find-rider" class="hidden absolute top-10 left-4 z-40 bg-white px-3 py-2 rounded-full shadow-lg text-sm font-semibold text-gray-800 hover:bg-gray-100">🚲 Position actuelle</button>
 
     <div id="map"></div>
     <div id="crosshair"></div>
@@ -199,12 +230,12 @@
         // Console Firebase > ⚙️ Paramètres du projet > Vos applications > Config
         // =====================================================================
         const firebaseConfig = {
-  apiKey: "AIzaSyCf_qEd2hZMVeanEW_YuK9vJ0tIaZLWLgc",
-  authDomain: "big-big-trip.firebaseapp.com",
-  projectId: "big-big-trip",
-  storageBucket: "big-big-trip.firebasestorage.app",
-  messagingSenderId: "388102244681",
-  appId: "1:388102244681:web:a645885854ef738ffbb298"
+            apiKey: "VOTRE_API_KEY",
+            authDomain: "votre-projet.firebaseapp.com",
+            projectId: "votre-projet",
+            storageBucket: "votre-projet.appspot.com",
+            messagingSenderId: "000000000000",
+            appId: "1:000000000000:web:xxxxxxxxxxxxxxxx"
         };
         const TRIP_DOC_ID = 'my-big-trip';
         const ADMIN_PASSWORD = 'velo';
@@ -296,6 +327,12 @@
         let isInitialLoadingFinished = false;
         let totalCalculatedDays = 0;
         let chartLatLngs = [];
+
+        // Lissage du dénivelé : une montée n'est comptée que lorsqu'elle dépasse ce seuil (en m).
+        // Augmentez-le (8-10) si le D+ vous paraît encore trop élevé.
+        const ELE_THRESHOLD = 5;
+        // En dessous de cette distance (km) avant un train, on ne coupe pas la journée.
+        const MIN_KM_BEFORE_TRAIN = 5;
 
         // === PARAMÈTRES DE PLANIFICATION (désormais sauvegardés) ===
         const PARAM_DEFAULTS = { 'target-dist': 70, 'max-dist': 120, 'target-elev-min': 450, 'target-elev-max': 1350, 'rest-days': 2 };
@@ -553,6 +590,7 @@
                     applyParams(data.params);
                     lsSet('my_bike_trip_params', data.params);
                 }
+                if ('lastPosition' in data) renderSharedPosition(data.lastPosition);
                 if (Array.isArray(data.gpxList) && data.gpxList.length &&
                     JSON.stringify(data.gpxList) !== JSON.stringify(tracesAutomatiques)) {
                     tracesAutomatiques = data.gpxList;
@@ -649,6 +687,7 @@
             }
             recalculateTotals();
             updateStatus("Prêt !");
+            if (!isVisitorMode && shareGpsInput.checked) startGps();
         }
 
         function updateProgressBar() {
@@ -758,6 +797,234 @@
             updateStatus(`Retour à l'étape J${completedDays}`);
         };
 
+        // === POSITION GPS ===
+        // Position fournie par le GPS de l'appareil qui affiche la page (votre téléphone).
+        let gpsWatchId = null;
+        let gpsMarker = null;
+        let gpsAccuracy = null;
+        let gpsCenteredOnce = false;
+        let lastSentPos = null;
+        const SHARE_MIN_INTERVAL_MS = 5 * 60 * 1000;
+        const SHARE_MIN_DIST_M = 500;
+        const btnGps = document.getElementById('btn-gps');
+        const shareGpsInput = document.getElementById('share-gps');
+        shareGpsInput.checked = !!lsGet('my_bike_trip_share_gps', false);
+
+        function startGps() {
+            if (!('geolocation' in navigator)) { updateStatus("Géolocalisation indisponible sur cet appareil."); return; }
+            if (!window.isSecureContext) { updateStatus("La position nécessite un site en https."); return; }
+            if (gpsWatchId !== null) return;
+            gpsCenteredOnce = false;
+            gpsWatchId = navigator.geolocation.watchPosition(onGpsPosition, onGpsError, {
+                enableHighAccuracy: true, maximumAge: 30000, timeout: 30000
+            });
+            btnGps.textContent = '📍 Masquer ma position';
+            updateStatus("Recherche de votre position...", true);
+        }
+
+        function stopGps() {
+            if (gpsWatchId !== null) navigator.geolocation.clearWatch(gpsWatchId);
+            gpsWatchId = null;
+            if (gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
+            if (gpsAccuracy) { map.removeLayer(gpsAccuracy); gpsAccuracy = null; }
+            btnGps.textContent = '📍 Afficher ma position';
+        }
+
+        function onGpsPosition(pos) {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const acc = pos.coords.accuracy;
+            if (!gpsMarker) {
+                gpsMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({ className: '', html: '<div class="gps-dot"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+                    zIndexOffset: 1000
+                }).addTo(map).bindPopup('📍 Vous êtes ici');
+                gpsAccuracy = L.circle([lat, lng], { radius: acc, color: '#2563eb', weight: 1, fillOpacity: 0.1, interactive: false }).addTo(map);
+            } else {
+                gpsMarker.setLatLng([lat, lng]);
+                gpsAccuracy.setLatLng([lat, lng]).setRadius(acc);
+            }
+            if (!gpsCenteredOnce) {
+                map.setView([lat, lng], Math.max(map.getZoom(), 12));
+                gpsCenteredOnce = true;
+                updateStatus("Position trouvée");
+            }
+            if (shareGpsInput.checked) maybeSharePosition(lat, lng, acc);
+        }
+
+        function onGpsError(err) {
+            const messages = {
+                1: "Accès à la position refusé : autorisez-le dans les réglages du navigateur.",
+                2: "Position indisponible pour le moment.",
+                3: "La recherche de position a pris trop de temps."
+            };
+            updateStatus(messages[err.code] || "Erreur de géolocalisation.");
+            if (err.code === 1) stopGps();
+        }
+
+        function maybeSharePosition(lat, lng, acc, force = false) {
+            if (isVisitorMode) return;
+            const now = Date.now();
+            if (!force && lastSentPos) {
+                const moved = map.distance([lastSentPos.lat, lastSentPos.lng], [lat, lng]);
+                if (now - lastSentPos.ts < SHARE_MIN_INTERVAL_MS && moved < SHARE_MIN_DIST_M) return;
+            }
+            lastSentPos = { lat, lng, ts: now };
+            saveToCloud({ lastPosition: { lat: +lat.toFixed(4), lng: +lng.toFixed(4), acc: Math.round(acc), ts: now } });
+        }
+
+        btnGps.addEventListener('click', () => { if (gpsWatchId === null) startGps(); else stopGps(); });
+
+        shareGpsInput.addEventListener('change', () => {
+            lsSet('my_bike_trip_share_gps', shareGpsInput.checked);
+            if (shareGpsInput.checked) {
+                if (gpsWatchId === null) startGps();
+                else if (gpsMarker) {
+                    const ll = gpsMarker.getLatLng();
+                    maybeSharePosition(ll.lat, ll.lng, gpsAccuracy.getRadius(), true);
+                }
+                updateStatus("Partage de position activé");
+            } else {
+                lastSentPos = null;
+                saveToCloud({ lastPosition: null });
+                updateStatus("Partage arrêté, position retirée du cloud");
+            }
+        });
+
+        // Affichage de la dernière position partagée (pour tous, surtout les visiteurs)
+        let sharedPosMarker = null;
+        let sharedPosData = null;
+        function timeAgo(ts) {
+            const min = Math.round((Date.now() - ts) / 60000);
+            if (min < 1) return "à l'instant";
+            if (min < 60) return `il y a ${min} min`;
+            const h = Math.round(min / 60);
+            if (h < 48) return `il y a ${h} h`;
+            return `il y a ${Math.round(h / 24)} jours`;
+        }
+        function renderSharedPosition(pos) {
+            const btn = document.getElementById('btn-find-rider');
+            sharedPosData = (pos && typeof pos.lat === 'number' && typeof pos.lng === 'number') ? pos : null;
+            if (!sharedPosData) {
+                if (sharedPosMarker) { map.removeLayer(sharedPosMarker); sharedPosMarker = null; }
+                btn.classList.add('hidden');
+                return;
+            }
+            const when = new Date(pos.ts).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+            const html = `<b>🚲 Dernière position partagée</b><br>${timeAgo(pos.ts)}<br><span class="text-xs text-gray-500">${when}</span>`;
+            if (!sharedPosMarker) {
+                sharedPosMarker = L.marker([pos.lat, pos.lng], {
+                    icon: L.divIcon({ className: '', html: '<div class="shared-pos">🚲</div>', iconSize: [32, 32], iconAnchor: [16, 16] }),
+                    zIndexOffset: 900
+                }).addTo(map).bindPopup(html);
+            } else {
+                sharedPosMarker.setLatLng([pos.lat, pos.lng]);
+                sharedPosMarker.setPopupContent(html);
+            }
+            if (isVisitorMode) btn.classList.remove('hidden');
+        }
+        setInterval(() => { if (sharedPosData) renderSharedPosition(sharedPosData); }, 60000); // rafraîchit "il y a X min"
+
+        document.getElementById('btn-find-rider').addEventListener('click', () => {
+            if (!sharedPosMarker) return;
+            map.flyTo(sharedPosMarker.getLatLng(), Math.max(map.getZoom(), 11), { duration: 1.2 });
+            sharedPosMarker.openPopup();
+        });
+
+        // === MÉTÉO PAR ÉTAPE (Open-Meteo) ===
+        const WEATHER_CODES = {
+            0: '☀️ Ciel clair', 1: '🌤️ Plutôt dégagé', 2: '⛅ Partiellement nuageux', 3: '☁️ Couvert',
+            45: '🌫️ Brouillard', 48: '🌫️ Brouillard givrant',
+            51: '🌦️ Bruine légère', 53: '🌦️ Bruine', 55: '🌦️ Bruine forte',
+            61: '🌧️ Pluie faible', 63: '🌧️ Pluie', 65: '🌧️ Pluie forte', 66: '🌧️ Pluie verglaçante', 67: '🌧️ Pluie verglaçante',
+            71: '🌨️ Neige faible', 73: '🌨️ Neige', 75: '🌨️ Neige forte', 77: '🌨️ Grains de neige',
+            80: '🌦️ Averses', 81: '🌦️ Averses', 82: '⛈️ Averses violentes', 85: '🌨️ Averses de neige', 86: '🌨️ Averses de neige',
+            95: '⛈️ Orage', 96: '⛈️ Orage et grêle', 99: '⛈️ Orage et grêle'
+        };
+        const weatherCache = {};
+
+        function isoDate(d) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        function windDir(deg) {
+            if (deg === null || deg === undefined) return '';
+            return ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(deg / 45) % 8];
+        }
+        const avg = (arr) => arr.reduce((s, x) => s + x, 0) / arr.length;
+
+        async function fetchForecast(lat, lng, iso) {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+                `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant` +
+                `&timezone=auto&start_date=${iso}&end_date=${iso}`;
+            const d = (await (await fetch(url)).json()).daily;
+            if (!d || !d.time || !d.time.length) throw new Error('Prévision vide');
+            const rain = d.precipitation_probability_max[0];
+            return `<b>Prévision</b><br>${WEATHER_CODES[d.weather_code[0]] || ''}` +
+                `<br>🌡️ ${Math.round(d.temperature_2m_min[0])}° / ${Math.round(d.temperature_2m_max[0])}°` +
+                `<br>☔ ${rain ?? '?'} % de risque de pluie` +
+                `<br>💨 ${Math.round(d.wind_speed_10m_max[0])} km/h, vent de ${windDir(d.wind_direction_10m_dominant[0])}`;
+        }
+
+        // Trop loin pour une prévision : moyenne des 3 dernières années, ±3 jours autour de la date
+        async function fetchNormals(lat, lng, target) {
+            const thisYear = new Date().getFullYear();
+            const years = [thisYear - 1, thisYear - 2, thisYear - 3];
+            const results = await Promise.all(years.map(y => {
+                const center = new Date(y, target.getMonth(), target.getDate());
+                const s = new Date(center); s.setDate(center.getDate() - 3);
+                const e = new Date(center); e.setDate(center.getDate() + 3);
+                const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}` +
+                    `&start_date=${isoDate(s)}&end_date=${isoDate(e)}` +
+                    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=auto`;
+                return fetch(url).then(r => r.json()).catch(() => null);
+            }));
+            const tmax = [], tmin = [], wind = [];
+            let days = 0, rainyDays = 0;
+            results.forEach(r => {
+                const d = r && r.daily;
+                if (!d || !d.time) return;
+                d.time.forEach((_, i) => {
+                    if (d.temperature_2m_max[i] != null) tmax.push(d.temperature_2m_max[i]);
+                    if (d.temperature_2m_min[i] != null) tmin.push(d.temperature_2m_min[i]);
+                    if (d.wind_speed_10m_max[i] != null) wind.push(d.wind_speed_10m_max[i]);
+                    if (d.precipitation_sum[i] != null) { days++; if (d.precipitation_sum[i] >= 1) rainyDays++; }
+                });
+            });
+            if (!tmax.length) throw new Error('Pas de données historiques');
+            return `<b>Normales de saison</b> <span class="text-gray-500">(${years[2]}–${years[0]})</span>` +
+                `<br>🌡️ ~${Math.round(avg(tmin))}° / ~${Math.round(avg(tmax))}°` +
+                (days ? `<br>☔ pluie ${Math.round(rainyDays / days * 100)} % des jours` : '') +
+                (wind.length ? `<br>💨 rafales moy. ~${Math.round(avg(wind))} km/h` : '') +
+                `<br><span class="text-gray-400">Vraie prévision disponible 16 jours avant.</span>`;
+        }
+
+        let milestoneMarkers = {};
+        window.showStageWeather = async function(day, lat, lng, iso) {
+            const entry = milestoneMarkers[day];
+            if (!entry) return;
+            const box = entry.content.querySelector('.stage-weather');
+            const refresh = () => { if (entry.marker.isPopupOpen()) entry.marker.getPopup().update(); };
+            const key = `${iso}|${lat}|${lng}`;
+            if (weatherCache[key]) { box.innerHTML = weatherCache[key]; refresh(); return; }
+
+            box.innerHTML = 'Chargement de la météo…';
+            refresh();
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const daysAhead = Math.round((parseLocalDate(iso) - today) / 86400000);
+            try {
+                // L'API de prévision couvre environ 2 mois en arrière et 16 jours en avant
+                const html = (daysAhead >= -60 && daysAhead <= 15)
+                    ? await fetchForecast(lat, lng, iso)
+                    : await fetchNormals(lat, lng, parseLocalDate(iso));
+                weatherCache[key] = html;
+                box.innerHTML = html;
+            } catch (e) {
+                console.error(e);
+                box.innerHTML = '<span class="text-red-600">Météo indisponible pour le moment.</span>';
+            }
+            refresh();
+        };
+
         // === CALCULS ===
         function extractPoints(layer) {
             const pts = [];
@@ -777,28 +1044,20 @@
         function hasEle(p) { return p && p.meta && p.meta.ele !== undefined && p.meta.ele !== null && !isNaN(p.meta.ele); }
 
         function recalculateTotals() {
-            let totalBikeDist = 0;
-            let totalBikeElev = 0;
             const globalPoints = [];
-
             gpxLayerGroup.eachLayer(layer => {
                 try {
-                    if (layer.tripMode !== 'train') {
-                        const dist = layer.get_distance ? layer.get_distance() / 1000 : 0;
-                        const elev = layer.get_elevation_gain ? layer.get_elevation_gain() : 0;
-                        totalBikeDist += isNaN(dist) ? 0 : dist;
-                        totalBikeElev += isNaN(elev) ? 0 : elev;
-                    }
                     const pts = extractPoints(layer);
                     pts.forEach(p => p.tripMode = layer.tripMode || 'bike');
                     globalPoints.push(...pts);
                 } catch (e) { console.warn("Tracé ignoré dans le calcul global", e); }
             });
 
-            document.getElementById('total-dist').innerText = Math.round(totalBikeDist) + ' km';
-            document.getElementById('total-elev').innerText = Math.round(totalBikeElev) + ' m';
-
-            totalCalculatedDays = drawMilestonesAndGetDays(globalPoints);
+            // Distance et D+ calculés avec la même méthode (lissée) que les étapes
+            const result = drawMilestonesAndGetDays(globalPoints);
+            totalCalculatedDays = result.days;
+            document.getElementById('total-dist').innerText = Math.round(result.dist) + ' km';
+            document.getElementById('total-elev').innerText = Math.round(result.elev) + ' m';
             document.getElementById('total-time').innerText = totalCalculatedDays + ' jours';
             updateProgressBar();
             updateMilestoneVisibility();
@@ -816,24 +1075,37 @@
             const milestoneDate = new Date(baseDate);
             milestoneDate.setDate(baseDate.getDate() + day - 1);
             const dateStr = milestoneDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+            const iso = isoDate(milestoneDate);
+            const lat = latlng.lat.toFixed(3);
+            const lng = latlng.lng.toFixed(3);
 
             let html = `<b>Étape J${day} • ${dateStr}</b>${isFinal ? ' 🏁' : ''}<br>Dist: ${Math.round(dist)}km<br>D+: ${Math.round(elev)}m`;
             if (isOverride) html += `<br><span class="text-xs text-orange-600 font-bold">⚠️ Étape modifiée manuellement</span>`;
 
+            html += `<button onclick="showStageWeather(${day}, ${lat}, ${lng}, '${iso}')" class="mt-2 bg-sky-100 hover:bg-sky-200 text-sky-800 px-2 py-1 rounded text-xs w-full transition">🌤️ Météo à l'arrivée</button>`;
+            html += `<div class="stage-weather text-xs mt-1 leading-5"></div>`;
+
             if (!isVisitorMode) {
                 html += isCompleted
-                    ? `<br><button onclick="unmarkDayCompleted(${day})" class="mt-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs w-full transition">Dévalider (revenir ici)</button>`
-                    : `<br><button onclick="markDayCompleted(${day})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
+                    ? `<button onclick="unmarkDayCompleted(${day})" class="mt-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs w-full transition">Dévalider (revenir ici)</button>`
+                    : `<button onclick="markDayCompleted(${day})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
                 if (!isFinal) {
                     html += `<button onclick="promptOverride(${day})" class="mt-1 bg-gray-200 hover:bg-gray-300 text-gray-800 px-2 py-1 rounded text-xs w-full transition">✏️ Forcer la distance</button>`;
                 }
             }
-            L.marker([latlng.lat, latlng.lng], { icon }).bindPopup(html).addTo(milestoneLayerGroup);
+
+            // Contenu sous forme d'élément : la météo injectée reste affichée quand la bulle se redimensionne
+            const content = document.createElement('div');
+            content.innerHTML = html;
+            const marker = L.marker([latlng.lat, latlng.lng], { icon }).bindPopup(content, { minWidth: 200 }).addTo(milestoneLayerGroup);
+            milestoneMarkers[day] = { marker, content };
         }
 
         function drawMilestonesAndGetDays(points) {
             milestoneLayerGroup.clearLayers();
-            if (!points || points.length === 0) return 0;
+            milestoneMarkers = {};
+            const result = { days: 0, dist: 0, elev: 0 };
+            if (!points || points.length === 0) return result;
 
             const p = getParams();
             const restDaysPerWeek = getRestDays();
@@ -846,21 +1118,53 @@
             let totalRealDays = 1;
             let lastMilestoneDay = 0;
             let lastBikePoint = null;
+            let eleRef = null; // altitude de référence pour le lissage
+
+            const closeDay = (atPoint, isOverride) => {
+                createMilestone(totalRealDays, atPoint, currentDayDist, currentDayElev, isOverride, false, baseDate);
+                lastMilestoneDay = totalRealDays;
+                currentDayDist = 0;
+                currentDayElev = 0;
+                bikeDayCount++;
+                const completedWeeks = Math.floor((bikeDayCount - 1) / activeDaysPerWeek);
+                totalRealDays = bikeDayCount + completedWeeks * restDaysPerWeek;
+            };
 
             for (let i = 0; i < points.length; i++) {
                 const curr = points[i];
-                if (curr.tripMode === 'train') { lastBikePoint = null; continue; }
 
-                if (lastBikePoint) {
-                    const d = map.distance(lastBikePoint, curr) / 1000;
-                    if (d < 20) {
-                        currentDayDist += d;
-                        // != null : les points au niveau de la mer (ele = 0) comptent aussi
-                        if (hasEle(curr) && hasEle(lastBikePoint)) {
-                            const eleDiff = curr.meta.ele - lastBikePoint.meta.ele;
-                            if (eleDiff > 0) currentDayElev += eleDiff;
+                if (curr.tripMode === 'train') {
+                    // Un tronçon en train termine la journée à la gare de départ
+                    if (lastBikePoint && currentDayDist >= MIN_KM_BEFORE_TRAIN) {
+                        closeDay(lastBikePoint, !!stepOverrides[totalRealDays]);
+                    }
+                    lastBikePoint = null;
+                    eleRef = null;
+                    continue;
+                }
+
+                const d = lastBikePoint ? map.distance(lastBikePoint, curr) / 1000 : Infinity;
+                if (d < 20) {
+                    currentDayDist += d;
+                    result.dist += d;
+                    // D+ lissé : on ignore les micro-variations inférieures à ELE_THRESHOLD
+                    if (hasEle(curr)) {
+                        if (eleRef === null) {
+                            eleRef = curr.meta.ele;
+                        } else {
+                            const diff = curr.meta.ele - eleRef;
+                            if (diff >= ELE_THRESHOLD) {
+                                currentDayElev += diff;
+                                result.elev += diff;
+                                eleRef = curr.meta.ele;
+                            } else if (diff <= -ELE_THRESHOLD) {
+                                eleRef = curr.meta.ele;
+                            }
                         }
                     }
+                } else {
+                    // Début de tracé ou saut entre deux fichiers : on repart d'une nouvelle référence
+                    eleRef = hasEle(curr) ? curr.meta.ele : null;
                 }
                 lastBikePoint = curr;
 
@@ -873,24 +1177,17 @@
                     else if (currentDayDist >= p['target-dist'] && currentDayElev >= p['target-elev-min']) endOfDay = true;
                     else if (currentDayDist >= p['max-dist']) endOfDay = true;
                 }
-
-                if (endOfDay) {
-                    createMilestone(totalRealDays, curr, currentDayDist, currentDayElev, !!overrideDist, false, baseDate);
-                    lastMilestoneDay = totalRealDays;
-                    currentDayDist = 0;
-                    currentDayElev = 0;
-                    bikeDayCount++;
-                    const completedWeeks = Math.floor((bikeDayCount - 1) / activeDaysPerWeek);
-                    totalRealDays = bikeDayCount + completedWeeks * restDaysPerWeek;
-                }
+                if (endOfDay) closeDay(curr, !!overrideDist);
             }
 
-            // Dernière étape (l'arrivée) : elle n'avait pas de bulle avant
+            // Dernière étape (l'arrivée)
             if (currentDayDist > 0.5 && lastBikePoint) {
                 createMilestone(totalRealDays, lastBikePoint, currentDayDist, currentDayElev, !!stepOverrides[totalRealDays], true, baseDate);
-                return totalRealDays;
+                result.days = totalRealDays;
+            } else {
+                result.days = lastMilestoneDay;
             }
-            return lastMilestoneDay;
+            return result;
         }
 
         // === GRAPHIQUE DÉNIVELÉ ===
