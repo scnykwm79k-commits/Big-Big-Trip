@@ -89,14 +89,17 @@
 </head>
 <body>
 
-    <!-- Écran de Mot de Passe / Chargement -->
+    <!-- Écran de connexion admin / Chargement -->
     <div id="lock-screen">
         <h1 class="text-4xl font-bold mb-6">Big Big Trip</h1>
-        <div id="password-container" class="flex flex-col items-center">
-            <input type="password" id="password-input" placeholder="Mot de passe..." class="px-4 py-2 rounded text-black mb-4 text-center">
-            <button id="unlock-btn" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded font-semibold transition">Déverrouiller</button>
+        <div id="login-container" class="hidden flex-col items-center w-72 max-w-[90%]">
+            <p class="text-sm text-slate-300 mb-4">Espace administrateur</p>
+            <input type="email" id="login-email" placeholder="Email" autocomplete="username" class="w-full px-4 py-2 rounded text-black mb-3">
+            <input type="password" id="login-password" placeholder="Mot de passe" autocomplete="current-password" class="w-full px-4 py-2 rounded text-black mb-4">
+            <button id="login-btn" class="w-full bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded font-semibold transition disabled:opacity-50">Se connecter</button>
+            <p id="login-error" class="text-red-300 text-sm mt-3 text-center min-h-[1.25rem]"></p>
         </div>
-        <div id="loading-container" class="hidden flex-col items-center">
+        <div id="loading-container" class="flex flex-col items-center">
             <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
             <p id="loading-text" class="text-lg">Chargement des tracés...</p>
         </div>
@@ -191,7 +194,9 @@
             <p id="total-time" class="text-xl font-bold text-green-600">0 jours</p>
         </div>
 
-        <button id="btn-share" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded mb-6 transition">🔗 Copier le lien Visiteur</button>
+        <button id="btn-share" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded mb-2 transition">🔗 Copier le lien Visiteur</button>
+        <a id="link-visitor" target="_blank" rel="noopener" class="block text-center text-sm text-indigo-600 hover:underline mb-3">👁️ Voir comme un visiteur</a>
+        <button id="btn-logout" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 rounded mb-6 transition">🚪 Se déconnecter</button>
 
         <h2 class="text-2xl font-bold mb-4 text-blue-600">Outils Locaux</h2>
         <button id="btn-weather" class="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 font-semibold py-2 rounded mb-4 transition">🌤️ Météo au centre</button>
@@ -222,7 +227,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // =====================================================================
@@ -238,10 +243,10 @@
             appId: "1:388102244681:web:a645885854ef738ffbb298"
         };
         const TRIP_DOC_ID = 'my-big-trip';
-        const ADMIN_PASSWORD = 'velo';
-
         const urlParams = new URLSearchParams(window.location.search);
-        const isVisitorMode = urlParams.has('visitor');
+        // L'adresse simple du site = vue visiteur.
+        // Ajoutez #admin à la fin de l'adresse pour accéder à l'espace administrateur.
+        const isVisitorMode = window.location.hash !== '#admin' || urlParams.has('visitor');
 
         // === STATUT CLOUD (affiché sous "Planification") ===
         function setCloudStatus(text, colorClass) {
@@ -252,7 +257,9 @@
 
         let isFirebaseReady = false;
         let db, auth, tripDocRef;
-        let authReady = Promise.resolve(null);
+        let cloudDocMissing = false;
+        let resolveFirstSnapshot;
+        const firstSnapshot = new Promise(r => { resolveFirstSnapshot = r; });
 
         const configIsFilled = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('VOTRE');
         if (configIsFilled) {
@@ -261,8 +268,6 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
                 tripDocRef = doc(db, 'trips', TRIP_DOC_ID);
-                authReady = signInAnonymously(auth);
-                authReady.catch(() => {}); // l'erreur est traitée plus bas
                 isFirebaseReady = true;
             } catch (e) {
                 console.error("Firebase : initialisation impossible", e);
@@ -528,9 +533,12 @@
         // disparaît bien du cloud (avec un simple merge, elle y serait restée).
         async function saveToCloud(partial) {
             if (!isFirebaseReady || isVisitorMode) return;
+            if (!auth.currentUser) {
+                setCloudStatus("☁️ Non connecté : modifications non sauvegardées", "text-red-600");
+                return;
+            }
             const data = { ...partial, updatedAt: Date.now() };
             try {
-                await authReady;
                 await setDoc(tripDocRef, data, { mergeFields: Object.keys(data) });
                 setCloudStatus("☁️ Synchronisé", "text-green-600");
             } catch (e) {
@@ -551,23 +559,19 @@
         }
 
         async function initCloud() {
-            if (!isFirebaseReady) return;
-            try {
-                await authReady;
-            } catch (e) {
-                // Lecture toujours possible si les règles autorisent la lecture publique
-                console.error("Connexion anonyme refusée. Activez « Anonyme » dans Firebase > Authentication :", e);
-                setCloudStatus(`☁️ Connexion refusée : ${e.code || e.message}`, "text-red-600");
-            }
+            if (!isFirebaseReady) { resolveFirstSnapshot(); return; }
 
             onSnapshot(tripDocRef, (snap) => {
+                resolveFirstSnapshot();
                 if (snap.metadata.hasPendingWrites) return; // écho de nos propres écritures
 
                 if (!snap.exists()) {
-                    // Premier lancement : on crée le document avec l'état local
-                    saveToCloud(fullState());
+                    // Premier lancement : le document sera créé dès que l'admin est connecté
+                    cloudDocMissing = true;
+                    if (!isVisitorMode && auth.currentUser) saveToCloud(fullState());
                     return;
                 }
+                cloudDocMissing = false;
                 if (!isVisitorMode) setCloudStatus("☁️ Synchronisé", "text-green-600");
 
                 const data = snap.data();
@@ -606,6 +610,7 @@
                     updateProgressBar();
                 }
             }, (err) => {
+                resolveFirstSnapshot();
                 console.error("Lecture cloud refusée (vérifiez les règles Firestore) :", err);
                 setCloudStatus(`☁️ Lecture refusée : ${err.code || err.message}`, "text-red-600");
             });
@@ -665,19 +670,85 @@
             loadTraces(() => { recalculateTotals(); updateStatus("Tracés mis à jour !"); });
         }
 
-        // === DÉVERROUILLAGE ===
-        function unlock() {
-            if (document.getElementById('password-input').value !== ADMIN_PASSWORD) {
-                alert("Mot de passe incorrect.");
-                return;
-            }
-            document.getElementById('password-container').classList.add('hidden');
-            document.getElementById('loading-container').classList.remove('hidden');
-            document.getElementById('loading-container').classList.add('flex');
+        // === ACCÈS : visiteur direct, admin via connexion Firebase ===
+        const loginContainer = document.getElementById('login-container');
+        const loadingContainer = document.getElementById('loading-container');
+        const loginError = document.getElementById('login-error');
+        const loginBtn = document.getElementById('login-btn');
+        let appStarted = false;
+
+        function showLogin() {
+            loadingContainer.classList.add('hidden'); loadingContainer.classList.remove('flex');
+            loginContainer.classList.remove('hidden'); loginContainer.classList.add('flex');
+        }
+        function showLoading() {
+            loginContainer.classList.add('hidden'); loginContainer.classList.remove('flex');
+            loadingContainer.classList.remove('hidden'); loadingContainer.classList.add('flex');
+        }
+
+        async function startApp() {
+            if (appStarted) return;
+            appStarted = true;
+            showLoading();
+            // On attend les données du cloud (liste des tracés à jour) avant de charger, 4 s maximum
+            await Promise.race([firstSnapshot, new Promise(r => setTimeout(r, 4000))]);
             loadTraces(forceUnlockMap);
         }
-        document.getElementById('unlock-btn').addEventListener('click', unlock);
-        document.getElementById('password-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') unlock(); });
+
+        const LOGIN_ERRORS = {
+            'auth/invalid-credential': "Email ou mot de passe incorrect.",
+            'auth/invalid-email': "Adresse email invalide.",
+            'auth/wrong-password': "Email ou mot de passe incorrect.",
+            'auth/user-not-found': "Email ou mot de passe incorrect.",
+            'auth/too-many-requests': "Trop de tentatives. Réessayez dans quelques minutes.",
+            'auth/operation-not-allowed': "Activez « Adresse e-mail/Mot de passe » dans Firebase > Authentication.",
+            'auth/network-request-failed': "Pas de connexion internet."
+        };
+
+        async function login() {
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+            if (!email || !password) { loginError.textContent = "Renseignez l'email et le mot de passe."; return; }
+            loginError.textContent = '';
+            loginBtn.disabled = true;
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // onAuthStateChanged prend le relais
+            } catch (e) {
+                console.error(e);
+                loginError.textContent = LOGIN_ERRORS[e.code] || `Connexion impossible (${e.code || e.message}).`;
+            } finally {
+                loginBtn.disabled = false;
+            }
+        }
+        loginBtn.addEventListener('click', login);
+        document.getElementById('login-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+
+        document.getElementById('btn-logout').addEventListener('click', async () => {
+            if (!isFirebaseReady) return;
+            stopGps();
+            await signOut(auth);
+        });
+        document.getElementById('link-visitor').href = window.location.pathname;
+
+        if (isVisitorMode) {
+            startApp();
+        } else if (!isFirebaseReady) {
+            // Sans cloud, rien n'est partagé : accès local
+            startApp();
+        } else {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    setCloudStatus(`☁️ Connecté : ${user.email}`, "text-green-600");
+                    if (cloudDocMissing) saveToCloud(fullState());
+                    startApp();
+                } else if (appStarted) {
+                    window.location.reload(); // déconnexion : retour à l'écran de connexion
+                } else {
+                    showLogin();
+                }
+            });
+        }
 
         function forceUnlockMap() {
             isInitialLoadingFinished = true;
@@ -706,10 +777,8 @@
         });
 
         document.getElementById('btn-share').addEventListener('click', async () => {
-            const url = new URL(window.location.href);
-            url.searchParams.set('visitor', 'true');
-            url.searchParams.set('progress', completedDays);
-            url.searchParams.set('start', startDateInput.value);
+            // Adresse simple du site : sans #admin, c'est automatiquement la vue visiteur
+            const url = { href: window.location.origin + window.location.pathname };
             try {
                 await navigator.clipboard.writeText(url.href);
             } catch {
