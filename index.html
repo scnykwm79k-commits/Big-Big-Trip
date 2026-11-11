@@ -3,109 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Big Big Trip</title> 
+    <title>Big Big Trip</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; }
         #map { width: 100vw; height: 100vh; z-index: 10; }
-        
-        /* Tiroir latéral pour mobile et desktop */
-        #sidebar {
-            transition: transform 0.3s ease-in-out;
-            z-index: 40;
-        }
-        
-        /* Graphique de dénivelé */
+
+        #sidebar { transition: transform 0.3s ease-in-out; z-index: 40; }
+
         #elevation-container {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
+            position: absolute; bottom: 0; left: 0; width: 100%;
             background: rgba(255, 255, 255, 0.9);
             z-index: 30;
             backdrop-filter: blur(5px);
             border-top: 1px solid #ddd;
             transition: all 0.3s ease-in-out;
         }
-
-        /* DÉCALAGE DU GRAPHIQUE SUR ORDINATEUR POUR NE PAS ÊTRE CACHÉ PAR LE MENU */
         @media (min-width: 640px) {
             body:not(.visitor-mode) #elevation-container {
-                left: 20rem; /* Correspond à la largeur du menu w-80 de Tailwind (320px) */
+                left: 20rem;
                 width: calc(100% - 20rem);
             }
         }
 
-        /* MASQUER LES POINTS D'INTÉRÊT KOMOOT (Radical et efficace) */
-        img.leaflet-marker-icon, img.leaflet-marker-shadow {
-            display: none !important;
-        }
+        /* Masque les POI Komoot (les jalons sont des divIcon, donc non concernés) */
+        img.leaflet-marker-icon, img.leaflet-marker-shadow { display: none !important; }
 
-        /* Viseur central pour la météo */
         #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
+            position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            pointer-events: none;
-            z-index: 20;
+            width: 20px; height: 20px;
+            pointer-events: none; z-index: 20;
         }
-        #crosshair::before, #crosshair::after {
-            content: '';
-            position: absolute;
-            background: rgba(0, 0, 0, 0.5);
-        }
+        #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(0, 0, 0, 0.5); }
         #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
         #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
 
-        /* Écran de verrouillage / chargement */
         #lock-screen {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #1e293b;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1e293b; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
             color: white;
         }
-        
-        /* Bulle de statut flottante (Toast) */
+
         #status-toast {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
+            position: absolute; bottom: 20px; left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 30px;
-            z-index: 50;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
+            background: rgba(0, 0, 0, 0.8); color: white;
+            padding: 10px 20px; border-radius: 30px;
+            z-index: 50; opacity: 0; transition: opacity 0.3s; pointer-events: none;
         }
         #status-toast.visible { opacity: 1; }
 
         .milestone-icon {
-            background-color: #2563eb;
-            color: white;
-            border-radius: 50%;
-            text-align: center;
-            line-height: 24px;
-            font-weight: bold;
-            font-size: 12px;
+            background-color: #2563eb; color: white;
+            border-radius: 50%; text-align: center; line-height: 24px;
+            font-weight: bold; font-size: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            border: 2px solid white;
-            cursor: pointer;
+            border: 2px solid white; cursor: pointer;
         }
-        .milestone-icon.completed {
-            background-color: #16a34a;
-        }
+        .milestone-icon.completed { background-color: #16a34a; }
     </style>
 </head>
 <body>
@@ -119,32 +77,32 @@
         </div>
         <div id="loading-container" class="hidden flex-col items-center">
             <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
-            <p id="loading-text" class="text-lg">Chargement des tracés (0/X)...</p>
+            <p id="loading-text" class="text-lg">Chargement des tracés...</p>
         </div>
     </div>
 
-    <!-- Barre de progression (Mode visiteur ou Admin en cours) -->
+    <!-- Barre de progression -->
     <div id="progress-container" class="absolute top-0 left-0 w-full h-6 bg-gray-200 z-50 hidden">
         <div id="progress-bar" class="h-full bg-green-500 transition-all duration-1000" style="width: 0%"></div>
         <div id="progress-text" class="absolute top-0 left-0 w-full h-full flex items-center justify-center text-xs font-bold text-gray-800 drop-shadow-md hidden">0%</div>
     </div>
 
-    <!-- Bouton Menu Mobile (Hamburger) -->
+    <!-- Bouton Menu Mobile -->
     <button id="menu-btn" class="absolute top-8 left-4 z-40 bg-white p-2 rounded shadow-lg text-gray-800 hover:bg-gray-100 sm:hidden">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
     </button>
 
-    <!-- Sidebar / Panneau de contrôle -->
+    <!-- Sidebar -->
     <div id="sidebar" class="absolute top-0 left-0 h-full w-80 bg-white shadow-2xl p-6 flex flex-col -translate-x-full sm:translate-x-0 overflow-y-auto pt-10 sm:pt-6">
         <button id="close-sidebar-btn" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 sm:hidden">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>
-        
-        <h2 class="text-2xl font-bold mb-4 text-blue-600">Planification</h2>
-        
+
+        <h2 class="text-2xl font-bold mb-1 text-blue-600">Planification</h2>
+        <p id="cloud-status" class="text-xs mb-4 font-semibold text-gray-400">☁️ Cloud : connexion...</p>
+
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Date de départ</label>
-            <!-- Ajoutez votre date ici au format AAAA-MM-JJ -->
             <input type="date" id="start-date" value="2027-08-01" class="w-full border rounded p-2 text-gray-800">
         </div>
         <div class="mb-4">
@@ -165,7 +123,7 @@
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-1">Jours de pause (par sem.)</label>
-            <input type="number" id="rest-days" value="2" class="w-full border rounded p-2 text-gray-800">
+            <input type="number" id="rest-days" value="2" min="0" max="6" class="w-full border rounded p-2 text-gray-800">
         </div>
 
         <!-- MODULE D'EXCEPTIONS -->
@@ -183,8 +141,9 @@
                 <button id="btn-add-override" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 font-bold transition">+</button>
             </div>
             <ul id="overrides-list" class="text-sm text-gray-600 space-y-1 mt-2 empty:hidden"></ul>
+            <p class="text-[10px] text-gray-400 mt-2 italic">Astuce : vous pouvez aussi cliquer sur une bulle J… de la carte.</p>
         </div>
-        
+
         <!-- MODULE GESTION DES TRACÉS GPX -->
         <div class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded">
             <label class="block text-sm font-bold text-gray-700 mb-2">Tracés GPX</label>
@@ -198,7 +157,6 @@
                 </select>
                 <button id="btn-add-gpx" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded transition">Ajouter le tracé</button>
             </div>
-            <p class="text-[10px] text-gray-400 mt-2 italic">* La page devra être rafraîchie après une modification de tracé.</p>
         </div>
 
         <button id="btn-recalc" class="w-full bg-blue-100 text-blue-700 hover:bg-blue-200 font-semibold py-2 rounded mb-6 transition">🔄 Recalculer les étapes</button>
@@ -219,45 +177,100 @@
         <button id="btn-pois" class="w-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold py-2 rounded mb-6 transition">🏕️ Campings & Eau (Zoomer avant)</button>
     </div>
 
-    <!-- Carte Leaflet -->
     <div id="map"></div>
-    <!-- Viseur central -->
     <div id="crosshair"></div>
-    
-    <!-- Toast de statut -->
     <div id="status-toast">Prêt</div>
 
-    <!-- Graphique Dénivelé -->
     <div id="elevation-container" class="h-32 sm:h-48 p-2">
         <canvas id="elevationChart"></canvas>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // === CONFIGURATION FIREBASE CLOUD ===
+        // =====================================================================
+        // === CONFIGURATION FIREBASE : À REMPLACER PAR CELLE DE VOTRE PROJET ===
+        // Console Firebase > ⚙️ Paramètres du projet > Vos applications > Config
+        // =====================================================================
         const firebaseConfig = {
-            projectId: "bike-trip-app-demo" 
+  apiKey: "AIzaSyCf_qEd2hZMVeanEW_YuK9vJ0tIaZLWLgc",
+  authDomain: "big-big-trip.firebaseapp.com",
+  projectId: "big-big-trip",
+  storageBucket: "big-big-trip.firebasestorage.app",
+  messagingSenderId: "388102244681",
+  appId: "1:388102244681:web:a645885854ef738ffbb298"
         };
-        let isFirebaseReady = false;
-        let db, auth;
-        
-        try {
-            const app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-            isFirebaseReady = true;
-        } catch (e) {
-            console.warn("Firebase non configuré, fonctionnement hors ligne activé.");
+        const TRIP_DOC_ID = 'my-big-trip';
+        const ADMIN_PASSWORD = 'velo';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const isVisitorMode = urlParams.has('visitor');
+
+        // === STATUT CLOUD (affiché sous "Planification") ===
+        function setCloudStatus(text, colorClass) {
+            const el = document.getElementById('cloud-status');
+            el.textContent = text;
+            el.className = `text-xs mb-4 font-semibold ${colorClass}`;
         }
 
-        // === VARIABLES GLOBALES ===
+        let isFirebaseReady = false;
+        let db, auth, tripDocRef;
+        let authReady = Promise.resolve(null);
+
+        const configIsFilled = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('VOTRE');
+        if (configIsFilled) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                tripDocRef = doc(db, 'trips', TRIP_DOC_ID);
+                authReady = signInAnonymously(auth);
+                authReady.catch(() => {}); // l'erreur est traitée plus bas
+                isFirebaseReady = true;
+            } catch (e) {
+                console.error("Firebase : initialisation impossible", e);
+                setCloudStatus("☁️ Cloud : erreur de configuration (voir console)", "text-red-600");
+            }
+        } else {
+            console.warn("Firebase : configuration absente, fonctionnement local uniquement.");
+            setCloudStatus("☁️ Cloud désactivé : config Firebase à renseigner", "text-orange-600");
+        }
+
+        // === PETITS UTILITAIRES ===
+        function lsGet(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (raw === null) return fallback;
+                try { return JSON.parse(raw); } catch { return raw; } // compatibilité anciennes valeurs brutes
+            } catch { return fallback; }
+        }
+        function lsSet(key, value) {
+            try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* stockage indisponible */ }
+        }
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function parseLocalDate(str) {
+            const [y, m, d] = String(str).split('-').map(Number);
+            return (y && m && d) ? new Date(y, m - 1, d) : new Date();
+        }
+
+        let toastTimeout;
+        function updateStatus(msg, keepOpen = false) {
+            const toast = document.getElementById('status-toast');
+            toast.innerText = msg;
+            toast.classList.add('visible');
+            clearTimeout(toastTimeout);
+            if (!keepOpen) toastTimeout = setTimeout(() => toast.classList.remove('visible'), 3000);
+        }
+
+        // === ÉTAT ===
         const defaultTraces = [
             { url: '2026-08-12_3192717650_Big Big Trip - Annecy to Zurich - komoot.gpx', nom: 'Annecy-Zurich', mode: 'bike' },
             { url: '2026-10-20_3192771285_Big Big Trip - Zurich to Venise - komoot.gpx', nom: 'Zurich-Venise', mode: 'bike' },
@@ -270,63 +283,116 @@
             { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' }
         ];
 
-        let tracesAutomatiques = JSON.parse(localStorage.getItem('my_bike_trip_gpx'));
-        if (!tracesAutomatiques || tracesAutomatiques.length === 0) {
-            tracesAutomatiques = defaultTraces;
-            localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
+        let tracesAutomatiques = lsGet('my_bike_trip_gpx', null);
+        if (!Array.isArray(tracesAutomatiques) || tracesAutomatiques.length === 0) {
+            tracesAutomatiques = defaultTraces.slice();
+            lsSet('my_bike_trip_gpx', tracesAutomatiques);
         }
-        
-        let initialLoadedCount = 0;
+
+        let stepOverrides = lsGet('my_bike_trip_overrides', {}) || {};
+        let completedDays = parseInt(lsGet('my_bike_trip_progress', 0)) || 0;
+        if (urlParams.has('progress')) completedDays = parseInt(urlParams.get('progress')) || 0;
+
         let isInitialLoadingFinished = false;
-        const urlParams = new URLSearchParams(window.location.search);
-        const isVisitorMode = urlParams.has('visitor');
-        
-        // EXCEPTIONS D'ÉTAPES (AVEC CACHE LOCAL)
-        let stepOverrides = JSON.parse(localStorage.getItem('my_bike_trip_overrides')) || {};
-        
+        let totalCalculatedDays = 0;
+        let chartLatLngs = [];
+
+        // === PARAMÈTRES DE PLANIFICATION (désormais sauvegardés) ===
+        const PARAM_DEFAULTS = { 'target-dist': 70, 'max-dist': 120, 'target-elev-min': 450, 'target-elev-max': 1350, 'rest-days': 2 };
+
+        function readNum(id) {
+            const v = parseFloat(document.getElementById(id).value);
+            return Number.isFinite(v) ? v : PARAM_DEFAULTS[id]; // 0 est maintenant une valeur valide
+        }
+        function getParams() {
+            const p = {};
+            for (const id in PARAM_DEFAULTS) p[id] = readNum(id);
+            return p;
+        }
+        function applyParams(p) {
+            if (!p || typeof p !== 'object') return;
+            for (const id in PARAM_DEFAULTS) {
+                if (p[id] !== undefined && p[id] !== null && p[id] !== '') document.getElementById(id).value = p[id];
+            }
+        }
+        function getRestDays() { return Math.min(6, Math.max(0, Math.round(readNum('rest-days')))); }
+        function isRestDay(day) {
+            const rest = getRestDays();
+            if (rest === 0) return false;
+            return ((day - 1) % 7) >= (7 - rest);
+        }
+
+        applyParams(lsGet('my_bike_trip_params', null));
+        for (const id in PARAM_DEFAULTS) {
+            document.getElementById(id).addEventListener('change', () => {
+                const p = getParams();
+                lsSet('my_bike_trip_params', p);
+                saveToCloud({ params: p });
+                if (isInitialLoadingFinished) { recalculateTotals(); updateStatus("Paramètres enregistrés"); }
+            });
+        }
+
+        // === EXCEPTIONS D'ÉTAPES ===
         const overrideDayInput = document.getElementById('override-day');
         const overrideDistInput = document.getElementById('override-dist');
         const overridesList = document.getElementById('overrides-list');
 
+        function persistOverrides() {
+            lsSet('my_bike_trip_overrides', stepOverrides);
+            renderOverrides();
+            saveToCloud({ stepOverrides });
+            if (isInitialLoadingFinished) recalculateTotals();
+        }
+
+        function addOverride(day, dist) {
+            if (!(day > 0 && dist > 0)) { updateStatus("Indiquez un jour et une distance supérieurs à 0."); return false; }
+            if (isRestDay(day)) { updateStatus(`J${day} est un jour de pause : choisissez un jour roulé.`); return false; }
+            stepOverrides[day] = dist;
+            persistOverrides();
+            updateStatus(`Étape J${day} forcée à ${dist} km`);
+            return true;
+        }
+
         document.getElementById('btn-add-override').addEventListener('click', () => {
-            const day = parseInt(overrideDayInput.value);
-            const dist = parseFloat(overrideDistInput.value);
-            if (day > 0 && dist > 0) {
-                stepOverrides[day] = dist;
-                localStorage.setItem('my_bike_trip_overrides', JSON.stringify(stepOverrides));
+            if (addOverride(parseInt(overrideDayInput.value), parseFloat(overrideDistInput.value))) {
                 overrideDayInput.value = '';
                 overrideDistInput.value = '';
-                renderOverrides();
-                if (isInitialLoadingFinished) {
-                    updateStatus("Recalcul avec exception...", true);
-                    setTimeout(() => { recalculateTotals(); updateStatus("Étape modifiée !"); }, 100);
-                }
             }
         });
 
         window.removeOverride = function(day) {
             delete stepOverrides[day];
-            localStorage.setItem('my_bike_trip_overrides', JSON.stringify(stepOverrides));
-            renderOverrides();
-            if (isInitialLoadingFinished) {
-                updateStatus("Recalcul des étapes...", true);
-                setTimeout(() => { recalculateTotals(); updateStatus("Exception retirée !"); }, 100);
+            persistOverrides();
+            updateStatus("Exception retirée");
+        };
+
+        window.promptOverride = function(day) {
+            const current = stepOverrides[day] ?? '';
+            const value = prompt(`Distance forcée pour J${day} (km).\nLaissez vide pour supprimer l'exception.`, current);
+            if (value === null) return;
+            if (value.trim() === '') {
+                if (stepOverrides[day] !== undefined) { map.closePopup(); window.removeOverride(day); }
+                return;
             }
+            if (addOverride(day, parseFloat(value.replace(',', '.')))) map.closePopup();
         };
 
         function renderOverrides() {
             overridesList.innerHTML = '';
-            for (const [day, dist] of Object.entries(stepOverrides)) {
-                overridesList.innerHTML += `
-                <li class="flex justify-between items-center bg-white p-1 px-2 rounded border border-gray-200">
-                    <span>Étape <b>J${day}</b> forcée à <b>${dist}km</b></span>
-                    <button onclick="removeOverride(${day})" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">&times;</button>
-                </li>`;
-            }
+            Object.keys(stepOverrides)
+                .sort((a, b) => Number(a) - Number(b))
+                .forEach(day => {
+                    const dist = stepOverrides[day];
+                    overridesList.innerHTML += `
+                    <li class="flex justify-between items-center bg-white p-1 px-2 rounded border border-gray-200">
+                        <span>Étape <b>J${escapeHtml(day)}</b> forcée à <b>${escapeHtml(dist)} km</b></span>
+                        <button onclick="removeOverride(${Number(day)})" class="text-red-500 font-bold px-2 hover:bg-red-50 rounded">&times;</button>
+                    </li>`;
+                });
         }
-        renderOverrides(); // Initialisation au chargement
+        renderOverrides();
 
-        // GESTION DES TRACÉS GPX (UI)
+        // === TRACÉS GPX (UI) ===
         const gpxList = document.getElementById('gpx-list');
         function renderGPX() {
             gpxList.innerHTML = '';
@@ -334,98 +400,83 @@
                 const icon = trace.mode === 'train' ? '🚆' : '🚲';
                 gpxList.innerHTML += `
                 <li class="flex justify-between items-center bg-white p-1 px-2 rounded border border-gray-200">
-                    <span class="truncate w-4/5 text-[11px]" title="${trace.url}"><b>${icon} ${trace.nom}</b></span>
+                    <span class="truncate w-4/5 text-[11px]" title="${escapeHtml(trace.url)}"><b>${icon} ${escapeHtml(trace.nom)}</b></span>
                     <button onclick="removeGPX(${idx})" class="text-red-500 font-bold px-1 hover:bg-red-50 rounded">&times;</button>
                 </li>`;
             });
         }
-        
+
+        function persistGpx() {
+            lsSet('my_bike_trip_gpx', tracesAutomatiques);
+            renderGPX();
+            saveToCloud({ gpxList: tracesAutomatiques });
+            if (isInitialLoadingFinished) reloadTraces(); // plus besoin de rafraîchir la page
+        }
+
         window.removeGPX = function(idx) {
             tracesAutomatiques.splice(idx, 1);
-            localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
-            renderGPX();
-            updateStatus("Tracé supprimé. Rafraîchissez la page !");
+            persistGpx();
         };
 
         document.getElementById('btn-add-gpx').addEventListener('click', () => {
-            const nom = document.getElementById('gpx-nom').value;
-            const url = document.getElementById('gpx-url').value;
+            const nom = document.getElementById('gpx-nom').value.trim();
+            const url = document.getElementById('gpx-url').value.trim();
             const mode = document.getElementById('gpx-mode').value;
             if (nom && url) {
                 tracesAutomatiques.push({ nom, url, mode });
-                localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
                 document.getElementById('gpx-nom').value = '';
                 document.getElementById('gpx-url').value = '';
-                renderGPX();
-                updateStatus("Tracé ajouté. Rafraîchissez la page !");
+                persistGpx();
             }
         });
-        renderGPX(); // Initialisation au chargement
+        renderGPX();
 
-        // GESTION DE LA DATE DE DEPART
+        // === DATE DE DÉPART ===
         const startDateInput = document.getElementById('start-date');
-        // Utilise la mémoire locale OU la date par défaut écrite dans le HTML ci-dessus
-        startDateInput.value = localStorage.getItem('my_bike_trip_start') || startDateInput.value;
+        startDateInput.value = lsGet('my_bike_trip_start', startDateInput.value) || startDateInput.value;
+        if (isVisitorMode && urlParams.has('start')) startDateInput.value = urlParams.get('start');
 
         startDateInput.addEventListener('change', (e) => {
-            localStorage.setItem('my_bike_trip_start', e.target.value);
+            lsSet('my_bike_trip_start', e.target.value);
+            saveToCloud({ startDate: e.target.value });
             if (isInitialLoadingFinished) recalculateTotals();
         });
 
-        // RECUPERATION DE LA PROGRESSION
-        let completedDays = parseInt(localStorage.getItem('my_bike_trip_progress')) || 0;
-        if (urlParams.has('progress')) {
-            completedDays = parseInt(urlParams.get('progress')) || 0;
-        }
-
-        let totalCalculatedDays = 0;
-        let chartLatLngs = []; 
-        let toastTimeout;
-
-        // ÉCOUTEUR MAGIQUE (Synchronise 2 onglets ouverts sur le même PC)
+        // === SYNCHRO ENTRE ONGLETS D'UN MÊME NAVIGATEUR ===
         window.addEventListener('storage', (e) => {
-            if (e.key === 'my_bike_trip_progress') {
-                completedDays = parseInt(e.newValue) || 0;
-                updateProgressBar();
-                if (isInitialLoadingFinished) recalculateTotals(); 
-            }
-            if (e.key === 'my_bike_trip_overrides') {
-                stepOverrides = JSON.parse(e.newValue) || {};
-                renderOverrides();
-                if (isInitialLoadingFinished) recalculateTotals();
-            }
+            if (e.key === 'my_bike_trip_progress') completedDays = parseInt(lsGet(e.key, 0)) || 0;
+            if (e.key === 'my_bike_trip_overrides') { stepOverrides = lsGet(e.key, {}) || {}; renderOverrides(); }
+            if (e.key === 'my_bike_trip_params') applyParams(lsGet(e.key, null));
+            if (e.key === 'my_bike_trip_start') startDateInput.value = lsGet(e.key, startDateInput.value);
             if (e.key === 'my_bike_trip_gpx') {
-                tracesAutomatiques = JSON.parse(e.newValue) || defaultTraces;
+                tracesAutomatiques = lsGet(e.key, null) || defaultTraces.slice();
                 renderGPX();
+                if (isInitialLoadingFinished) { reloadTraces(); return; }
             }
+            if (isInitialLoadingFinished) recalculateTotals();
         });
 
-        // === UI & TOAST ===
-        function updateStatus(msg, keepOpen = false) {
-            const toast = document.getElementById('status-toast');
-            toast.innerText = msg;
-            toast.classList.add('visible');
-            clearTimeout(toastTimeout);
-            if (!keepOpen) {
-                toastTimeout = setTimeout(() => { toast.classList.remove('visible'); }, 3000);
-            }
-        }
-
-        // === INITIALISATION CARTE ===
+        // === CARTE ===
         const map = L.map('map', { zoomControl: false }).setView([46.603354, 1.888334], 6);
         L.control.zoom({ position: 'topright' }).addTo(map);
-        
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Tiles &copy; Esri'
         }).addTo(map);
 
         const gpxLayerGroup = L.featureGroup().addTo(map);
-        const poiLayerGroup = L.featureGroup().addTo(map); // Groupe pour les campings et points d'eau
+        const poiLayerGroup = L.featureGroup().addTo(map);
+        const milestoneLayerGroup = L.layerGroup().addTo(map);
 
-        // === GESTION MOBILE ET VISITEUR ===
+        function updateMilestoneVisibility() {
+            if (map.getZoom() < 7) map.removeLayer(milestoneLayerGroup);
+            else if (!map.hasLayer(milestoneLayerGroup)) milestoneLayerGroup.addTo(map);
+        }
+        map.on('zoomend', updateMilestoneVisibility);
+
+        // === MOBILE ET VISITEUR ===
         const sidebar = document.getElementById('sidebar');
-        document.getElementById('menu-btn').addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); });
-        document.getElementById('close-sidebar-btn').addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); });
+        document.getElementById('menu-btn').addEventListener('click', () => sidebar.classList.remove('-translate-x-full'));
+        document.getElementById('close-sidebar-btn').addEventListener('click', () => sidebar.classList.add('-translate-x-full'));
 
         if (isVisitorMode) {
             document.body.classList.add('visitor-mode');
@@ -436,112 +487,165 @@
         }
 
         // === CLOUD SYNC ===
+        // mergeFields remplace entièrement les champs envoyés : une exception supprimée
+        // disparaît bien du cloud (avec un simple merge, elle y serait restée).
+        async function saveToCloud(partial) {
+            if (!isFirebaseReady || isVisitorMode) return;
+            const data = { ...partial, updatedAt: Date.now() };
+            try {
+                await authReady;
+                await setDoc(tripDocRef, data, { mergeFields: Object.keys(data) });
+                setCloudStatus("☁️ Synchronisé", "text-green-600");
+            } catch (e) {
+                console.error("Sauvegarde cloud échouée :", e);
+                setCloudStatus(`☁️ Échec sauvegarde : ${e.code || e.message}`, "text-red-600");
+                updateStatus("⚠️ Sauvegarde cloud échouée (voir console)");
+            }
+        }
+
+        function fullState() {
+            return {
+                completedDays,
+                startDate: startDateInput.value,
+                stepOverrides,
+                gpxList: tracesAutomatiques,
+                params: getParams()
+            };
+        }
+
         async function initCloud() {
             if (!isFirebaseReady) return;
             try {
-                await signInAnonymously(auth);
-                const progressDocRef = doc(db, 'trips', 'my-big-trip');
-                onSnapshot(progressDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        
-                        // 1. MAJ Progression
-                        if (data.completedDays !== undefined) completedDays = data.completedDays;
-                        
-                        // 2. MAJ Date de départ
-                        if (data.startDate) {
-                            startDateInput.value = data.startDate;
-                            localStorage.setItem('my_bike_trip_start', data.startDate);
-                        }
-
-                        // 3. MAJ Exceptions d'étapes
-                        if (data.stepOverrides) {
-                            stepOverrides = data.stepOverrides;
-                            localStorage.setItem('my_bike_trip_overrides', JSON.stringify(stepOverrides));
-                            renderOverrides();
-                        }
-
-                        // 4. MAJ Liste des tracés GPX
-                        if (data.gpxList) {
-                            tracesAutomatiques = data.gpxList;
-                            localStorage.setItem('my_bike_trip_gpx', JSON.stringify(tracesAutomatiques));
-                            renderGPX();
-                        }
-
-                        updateProgressBar();
-                        if (isInitialLoadingFinished) recalculateTotals(); 
-                    }
-                });
+                await authReady;
             } catch (e) {
-                console.warn("Mode hors ligne.");
+                // Lecture toujours possible si les règles autorisent la lecture publique
+                console.error("Connexion anonyme refusée. Activez « Anonyme » dans Firebase > Authentication :", e);
+                setCloudStatus(`☁️ Connexion refusée : ${e.code || e.message}`, "text-red-600");
             }
+
+            onSnapshot(tripDocRef, (snap) => {
+                if (snap.metadata.hasPendingWrites) return; // écho de nos propres écritures
+
+                if (!snap.exists()) {
+                    // Premier lancement : on crée le document avec l'état local
+                    saveToCloud(fullState());
+                    return;
+                }
+                if (!isVisitorMode) setCloudStatus("☁️ Synchronisé", "text-green-600");
+
+                const data = snap.data();
+                let gpxChanged = false;
+
+                if (typeof data.completedDays === 'number') {
+                    completedDays = data.completedDays;
+                    lsSet('my_bike_trip_progress', completedDays);
+                }
+                if (data.startDate) {
+                    startDateInput.value = data.startDate;
+                    lsSet('my_bike_trip_start', data.startDate);
+                }
+                if (data.stepOverrides && typeof data.stepOverrides === 'object') {
+                    stepOverrides = data.stepOverrides;
+                    lsSet('my_bike_trip_overrides', stepOverrides);
+                    renderOverrides();
+                }
+                if (data.params) {
+                    applyParams(data.params);
+                    lsSet('my_bike_trip_params', data.params);
+                }
+                if (Array.isArray(data.gpxList) && data.gpxList.length &&
+                    JSON.stringify(data.gpxList) !== JSON.stringify(tracesAutomatiques)) {
+                    tracesAutomatiques = data.gpxList;
+                    lsSet('my_bike_trip_gpx', tracesAutomatiques);
+                    renderGPX();
+                    gpxChanged = true;
+                }
+
+                if (isInitialLoadingFinished) {
+                    if (gpxChanged) reloadTraces();
+                    else recalculateTotals();
+                } else {
+                    updateProgressBar();
+                }
+            }, (err) => {
+                console.error("Lecture cloud refusée (vérifiez les règles Firestore) :", err);
+                setCloudStatus(`☁️ Lecture refusée : ${err.code || err.message}`, "text-red-600");
+            });
         }
         initCloud();
 
-        // === LOGIQUE METIER ===
-        document.getElementById('unlock-btn').addEventListener('click', () => {
-            if (document.getElementById('password-input').value === 'velo') {
-                document.getElementById('password-container').classList.add('hidden');
-                document.getElementById('loading-container').classList.remove('hidden');
-                document.getElementById('loading-container').classList.add('flex');
-                
-                if (tracesAutomatiques.length === 0) {
-                    forceUnlockMap();
-                    return;
-                }
-                
-                setTimeout(() => { if (!isInitialLoadingFinished) forceUnlockMap(); }, 8000);
-                
-                tracesAutomatiques.forEach(file => {
-                    const isTrain = file.mode === 'train';
-                    
-                    let baseUri = window.location.href;
-                    if (baseUri.startsWith('blob:') || baseUri.startsWith('about:')) {
-                        baseUri = 'https://localhost/'; // Empêche le crash dans les bacs à sable web
-                    }
-                    const safeUrl = new URL(encodeURI(file.url), baseUri).href;
-                    
-                    const gpxLayer = new L.GPX(safeUrl, { 
-                        async: true, 
-                        polyline_options: { 
-                            color: isTrain ? '#ef4444' : '#3b82f6', 
-                            weight: isTrain ? 3 : 4,
-                            dashArray: isTrain ? '10, 10' : ''
-                        },
-                        marker_options: {
-                            startIconUrl: '',
-                            endIconUrl: '',
-                            shadowUrl: ''
-                        }
-                    });
-                    
-                    gpxLayer.tripMode = file.mode;
-                    
-                    gpxLayer.on('loaded', (e) => { 
-                        handleInitialProgress(); 
-                    });
-                    gpxLayer.on('error', (e) => { console.warn("Fichier introuvable/erreur :", file.url); handleInitialProgress(); });
-                    gpxLayer.addTo(gpxLayerGroup);
-                });
-            } else {
-                alert("Mot de passe incorrect.");
-            }
-        });
+        // === CHARGEMENT DES TRACÉS ===
+        let loadGeneration = 0;
+        function loadTraces(onDone) {
+            const gen = ++loadGeneration;
+            gpxLayerGroup.clearLayers();
+            const total = tracesAutomatiques.length;
+            if (total === 0) { onDone(); return; }
 
-        function handleInitialProgress() {
-            if (isInitialLoadingFinished) return;
-            initialLoadedCount++;
-            document.getElementById('loading-text').innerText = `Chargement (${initialLoadedCount}/${tracesAutomatiques.length})...`;
-            if (initialLoadedCount >= tracesAutomatiques.length) {
-                forceUnlockMap();
-            }
+            let count = 0;
+            let done = false;
+            const finish = () => {
+                if (done || gen !== loadGeneration) return;
+                done = true;
+                clearTimeout(timer);
+                onDone();
+            };
+            const timer = setTimeout(finish, 8000);
+
+            const step = () => {
+                if (gen !== loadGeneration) return;
+                count++;
+                document.getElementById('loading-text').innerText = `Chargement des tracés (${count}/${total})...`;
+                if (done) { recalculateTotals(); return; } // tracé arrivé après le délai de 8 s
+                if (count >= total) finish();
+            };
+
+            let baseUri = window.location.href;
+            if (baseUri.startsWith('blob:') || baseUri.startsWith('about:')) baseUri = 'https://localhost/';
+
+            tracesAutomatiques.forEach(file => {
+                const isTrain = file.mode === 'train';
+                const safeUrl = new URL(encodeURI(file.url), baseUri).href;
+                const gpxLayer = new L.GPX(safeUrl, {
+                    async: true,
+                    polyline_options: {
+                        color: isTrain ? '#ef4444' : '#3b82f6',
+                        weight: isTrain ? 3 : 4,
+                        dashArray: isTrain ? '10, 10' : ''
+                    },
+                    marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' }
+                });
+                gpxLayer.tripMode = file.mode;
+                gpxLayer.on('loaded', step);
+                gpxLayer.on('error', () => { console.warn("Fichier introuvable/erreur :", file.url); step(); });
+                gpxLayer.addTo(gpxLayerGroup);
+            });
         }
+
+        function reloadTraces() {
+            updateStatus("Chargement des tracés...", true);
+            loadTraces(() => { recalculateTotals(); updateStatus("Tracés mis à jour !"); });
+        }
+
+        // === DÉVERROUILLAGE ===
+        function unlock() {
+            if (document.getElementById('password-input').value !== ADMIN_PASSWORD) {
+                alert("Mot de passe incorrect.");
+                return;
+            }
+            document.getElementById('password-container').classList.add('hidden');
+            document.getElementById('loading-container').classList.remove('hidden');
+            document.getElementById('loading-container').classList.add('flex');
+            loadTraces(forceUnlockMap);
+        }
+        document.getElementById('unlock-btn').addEventListener('click', unlock);
+        document.getElementById('password-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') unlock(); });
 
         function forceUnlockMap() {
             isInitialLoadingFinished = true;
             document.getElementById('lock-screen').style.display = 'none';
             if (gpxLayerGroup.getLayers().length > 0) {
-                map.fitBounds(gpxLayerGroup.getBounds());
+                try { map.fitBounds(gpxLayerGroup.getBounds()); } catch { /* aucun tracé chargé */ }
             }
             recalculateTotals();
             updateStatus("Prêt !");
@@ -550,40 +654,37 @@
         function updateProgressBar() {
             if (totalCalculatedDays <= 0) return;
             const pct = Math.min(100, Math.max(0, (completedDays / totalCalculatedDays) * 100));
-            
-            let startStr = isVisitorMode && urlParams.has('start') ? urlParams.get('start') : startDateInput.value;
-            let endDate = new Date(startStr);
+            const endDate = parseLocalDate(startDateInput.value);
             endDate.setDate(endDate.getDate() + totalCalculatedDays - 1);
-            let endDateFmt = endDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-
+            const endDateFmt = endDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
             document.getElementById('progress-bar').style.width = pct + '%';
             document.getElementById('progress-text').innerText = `${Math.round(pct)}% (${completedDays}/${totalCalculatedDays}j) • Arrivée estimée : ${endDateFmt}`;
         }
 
         document.getElementById('btn-recalc').addEventListener('click', () => {
             updateStatus("Recalcul en cours...", true);
-            setTimeout(() => {
-                recalculateTotals();
-                updateStatus("Étapes mises à jour.");
-            }, 100);
+            setTimeout(() => { recalculateTotals(); updateStatus("Étapes mises à jour."); }, 100);
         });
 
-        document.getElementById('btn-share').addEventListener('click', () => {
+        document.getElementById('btn-share').addEventListener('click', async () => {
             const url = new URL(window.location.href);
             url.searchParams.set('visitor', 'true');
             url.searchParams.set('progress', completedDays);
             url.searchParams.set('start', startDateInput.value);
-            
-            const dummy = document.createElement('input');
-            document.body.appendChild(dummy);
-            dummy.value = url.href;
-            dummy.select();
-            document.execCommand('copy');
-            document.body.removeChild(dummy);
+            try {
+                await navigator.clipboard.writeText(url.href);
+            } catch {
+                const dummy = document.createElement('input');
+                document.body.appendChild(dummy);
+                dummy.value = url.href;
+                dummy.select();
+                document.execCommand('copy');
+                document.body.removeChild(dummy);
+            }
             updateStatus("Lien Visiteur copié !");
         });
 
-        // RECHERCHE MÉTÉO (Open-Meteo API)
+        // === MÉTÉO (Open-Meteo) ===
         document.getElementById('btn-weather').addEventListener('click', async () => {
             const center = map.getCenter();
             updateStatus("Récupération de la météo...", true);
@@ -591,11 +692,9 @@
                 const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${center.lat}&longitude=${center.lng}&current_weather=true`);
                 const data = await res.json();
                 if (data.current_weather) {
-                    const temp = data.current_weather.temperature;
-                    const wind = data.current_weather.windspeed;
                     L.popup()
                         .setLatLng(center)
-                        .setContent(`<div class="text-center"><b>Météo locale</b><br>🌡️ ${temp}°C<br>💨 ${wind} km/h</div>`)
+                        .setContent(`<div class="text-center"><b>Météo locale</b><br>🌡️ ${data.current_weather.temperature}°C<br>💨 ${data.current_weather.windspeed} km/h</div>`)
                         .openOn(map);
                     updateStatus("Météo affichée !");
                 }
@@ -604,53 +703,32 @@
             }
         });
 
-        // RECHERCHE CAMPINGS ET POINTS D'EAU (Overpass API)
+        // === CAMPINGS & EAU (Overpass) ===
         document.getElementById('btn-pois').addEventListener('click', async () => {
-            if (map.getZoom() < 10) {
-                updateStatus("Veuillez zoomer davantage sur la carte.", false);
-                return;
-            }
+            if (map.getZoom() < 10) { updateStatus("Veuillez zoomer davantage sur la carte."); return; }
             updateStatus("Recherche en cours...", true);
-            poiLayerGroup.clearLayers(); 
-            
-            const bounds = map.getBounds();
-            const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-            const query = `
-                [out:json][timeout:25];
-                (
-                  node["tourism"="camp_site"](${bbox});
-                  node["amenity"="drinking_water"](${bbox});
-                );
-                out body;
-                >;
-                out skel qt;
-            `;
-            
+            poiLayerGroup.clearLayers();
+
+            const b = map.getBounds();
+            const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+            const query = `[out:json][timeout:25];(node["tourism"="camp_site"](${bbox});node["amenity"="drinking_water"](${bbox}););out body;`;
+
             try {
-                const res = await fetch('https://overpass-api.de/api/interpreter', {
-                    method: 'POST',
-                    body: query
-                });
+                const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: query });
                 const data = await res.json();
-                
                 let count = 0;
                 data.elements.forEach(el => {
-                    if (el.type === 'node') {
-                        const isWater = el.tags && el.tags.amenity === 'drinking_water';
-                        const iconHtml = isWater ? '💧' : '🏕️';
-                        const colorClass = isWater ? 'bg-blue-500' : 'bg-emerald-600';
-                        const title = el.tags.name || (isWater ? 'Point d\'eau potable' : 'Camping');
-                        
-                        const icon = L.divIcon({
-                            className: '',
-                            html: `<div class="${colorClass} text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md border-2 border-white">${iconHtml}</div>`,
-                            iconSize: [32, 32],
-                            iconAnchor: [16, 16]
-                        });
-                        
-                        L.marker([el.lat, el.lon], {icon: icon}).bindPopup(`<b>${title}</b>`).addTo(poiLayerGroup);
-                        count++;
-                    }
+                    if (el.type !== 'node' || !el.tags) return;
+                    const isWater = el.tags.amenity === 'drinking_water';
+                    const title = el.tags.name || (isWater ? "Point d'eau potable" : 'Camping');
+                    const icon = L.divIcon({
+                        className: '',
+                        html: `<div class="${isWater ? 'bg-blue-500' : 'bg-emerald-600'} text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md border-2 border-white">${isWater ? '💧' : '🏕️'}</div>`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16]
+                    });
+                    L.marker([el.lat, el.lon], { icon }).bindPopup(`<b>${escapeHtml(title)}</b>`).addTo(poiLayerGroup);
+                    count++;
                 });
                 updateStatus(`${count} lieux trouvés !`);
             } catch (e) {
@@ -659,83 +737,62 @@
             }
         });
 
-        // VALIDATION D'UNE ETAPE
-        window.markDayCompleted = async function(day) {
+        // === VALIDATION / DÉVALIDATION D'UNE ÉTAPE ===
+        window.markDayCompleted = function(day) {
             if (isVisitorMode) return;
             completedDays = day;
-            
-            localStorage.setItem('my_bike_trip_progress', day);
-            
-            updateProgressBar();
+            lsSet('my_bike_trip_progress', day);
             map.closePopup();
-            updateStatus(`Étape J${day} validée !`);
-            
             saveToCloud({ completedDays: day });
             recalculateTotals();
+            updateStatus(`Étape J${day} validée !`);
         };
 
-        // DEVALIDATION D'UNE ETAPE (RETOUR EN ARRIÈRE)
-        window.unmarkDayCompleted = async function(day) {
+        window.unmarkDayCompleted = function(day) {
             if (isVisitorMode) return;
-            completedDays = day - 1; 
-            
-            localStorage.setItem('my_bike_trip_progress', completedDays);
-            
-            updateProgressBar();
+            completedDays = Math.max(0, day - 1);
+            lsSet('my_bike_trip_progress', completedDays);
             map.closePopup();
-            updateStatus(`Retour à l'étape J${completedDays}`);
-            
-            saveToCloud({ completedDays: completedDays });
+            saveToCloud({ completedDays });
             recalculateTotals();
+            updateStatus(`Retour à l'étape J${completedDays}`);
         };
 
-        // Fonction d'extraction ultra-robuste
+        // === CALCULS ===
         function extractPoints(layer) {
-            let pts = [];
+            const pts = [];
             if (layer.getLatLngs) {
-                const latlngs = layer.getLatLngs();
                 const flat = (arr) => {
                     if (Array.isArray(arr)) {
                         if (arr.length > 0 && arr[0] instanceof L.LatLng) pts.push(...arr);
                         else arr.forEach(flat);
                     }
                 };
-                flat(latlngs);
+                flat(layer.getLatLngs());
             }
-            if (layer.eachLayer) {
-                layer.eachLayer(child => {
-                    pts.push(...extractPoints(child));
-                });
-            }
+            if (layer.eachLayer) layer.eachLayer(child => pts.push(...extractPoints(child)));
             return pts;
         }
+
+        function hasEle(p) { return p && p.meta && p.meta.ele !== undefined && p.meta.ele !== null && !isNaN(p.meta.ele); }
 
         function recalculateTotals() {
             let totalBikeDist = 0;
             let totalBikeElev = 0;
-            let globalPoints = [];
-            
-            map.eachLayer(layer => {
-                if (layer instanceof L.Marker && layer.options.icon && layer.options.icon.options.className && layer.options.icon.options.className.includes('milestone')) {
-                    map.removeLayer(layer);
-                }
-            });
+            const globalPoints = [];
 
-            gpxLayerGroup.eachLayer(function(layer) {
+            gpxLayerGroup.eachLayer(layer => {
                 try {
-                    const isTrain = layer.tripMode === 'train';
-                    
-                    if (!isTrain) {
+                    if (layer.tripMode !== 'train') {
                         const dist = layer.get_distance ? layer.get_distance() / 1000 : 0;
                         const elev = layer.get_elevation_gain ? layer.get_elevation_gain() : 0;
                         totalBikeDist += isNaN(dist) ? 0 : dist;
                         totalBikeElev += isNaN(elev) ? 0 : elev;
                     }
-                    
                     const pts = extractPoints(layer);
                     pts.forEach(p => p.tripMode = layer.tripMode || 'bike');
                     globalPoints.push(...pts);
-                } catch (e) { console.warn("Tracé ignoré dans le calcul global"); }
+                } catch (e) { console.warn("Tracé ignoré dans le calcul global", e); }
             });
 
             document.getElementById('total-dist').innerText = Math.round(totalBikeDist) + ' km';
@@ -744,43 +801,62 @@
             totalCalculatedDays = drawMilestonesAndGetDays(globalPoints);
             document.getElementById('total-time').innerText = totalCalculatedDays + ' jours';
             updateProgressBar();
+            updateMilestoneVisibility();
             drawElevationChart(globalPoints);
         }
 
-        function drawMilestonesAndGetDays(points) {
-            if (!points || points.length === 0) return 0;
-            
-            const targetDist = parseFloat(document.getElementById('target-dist').value) || 70;
-            const absoluteMaxDist = parseFloat(document.getElementById('max-dist').value) || 120;
-            const targetElevMin = parseFloat(document.getElementById('target-elev-min').value) || 450;
-            const targetElevMax = parseFloat(document.getElementById('target-elev-max').value) || 1350;
-            const restDaysPerWeek = parseInt(document.getElementById('rest-days').value) || 2;
-            const activeDaysPerWeek = 7 - restDaysPerWeek;
+        function createMilestone(day, latlng, dist, elev, isOverride, isFinal, baseDate) {
+            const isCompleted = day <= completedDays;
+            const icon = L.divIcon({
+                className: `milestone-icon ${isCompleted ? 'completed' : ''}`,
+                html: isFinal ? `🏁${day}` : `J${day}`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+            const milestoneDate = new Date(baseDate);
+            milestoneDate.setDate(baseDate.getDate() + day - 1);
+            const dateStr = milestoneDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 
-            let startStr = isVisitorMode && urlParams.has('start') ? urlParams.get('start') : startDateInput.value;
-            let baseDate = new Date(startStr);
+            let html = `<b>Étape J${day} • ${dateStr}</b>${isFinal ? ' 🏁' : ''}<br>Dist: ${Math.round(dist)}km<br>D+: ${Math.round(elev)}m`;
+            if (isOverride) html += `<br><span class="text-xs text-orange-600 font-bold">⚠️ Étape modifiée manuellement</span>`;
+
+            if (!isVisitorMode) {
+                html += isCompleted
+                    ? `<br><button onclick="unmarkDayCompleted(${day})" class="mt-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs w-full transition">Dévalider (revenir ici)</button>`
+                    : `<br><button onclick="markDayCompleted(${day})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
+                if (!isFinal) {
+                    html += `<button onclick="promptOverride(${day})" class="mt-1 bg-gray-200 hover:bg-gray-300 text-gray-800 px-2 py-1 rounded text-xs w-full transition">✏️ Forcer la distance</button>`;
+                }
+            }
+            L.marker([latlng.lat, latlng.lng], { icon }).bindPopup(html).addTo(milestoneLayerGroup);
+        }
+
+        function drawMilestonesAndGetDays(points) {
+            milestoneLayerGroup.clearLayers();
+            if (!points || points.length === 0) return 0;
+
+            const p = getParams();
+            const restDaysPerWeek = getRestDays();
+            const activeDaysPerWeek = 7 - restDaysPerWeek;
+            const baseDate = parseLocalDate(startDateInput.value);
 
             let currentDayDist = 0;
             let currentDayElev = 0;
             let bikeDayCount = 1;
             let totalRealDays = 1;
-            
+            let lastMilestoneDay = 0;
             let lastBikePoint = null;
-            
+
             for (let i = 0; i < points.length; i++) {
                 const curr = points[i];
-                
-                if (curr.tripMode === 'train') {
-                    lastBikePoint = null; 
-                    continue; 
-                }
-                
+                if (curr.tripMode === 'train') { lastBikePoint = null; continue; }
+
                 if (lastBikePoint) {
                     const d = map.distance(lastBikePoint, curr) / 1000;
                     if (d < 20) {
                         currentDayDist += d;
-                        
-                        if (curr.meta && curr.meta.ele && lastBikePoint.meta && lastBikePoint.meta.ele) {
+                        // != null : les points au niveau de la mer (ele = 0) comptent aussi
+                        if (hasEle(curr) && hasEle(lastBikePoint)) {
                             const eleDiff = curr.meta.ele - lastBikePoint.meta.ele;
                             if (eleDiff > 0) currentDayElev += eleDiff;
                         }
@@ -788,97 +864,60 @@
                 }
                 lastBikePoint = curr;
 
+                const overrideDist = stepOverrides[totalRealDays];
                 let endOfDay = false;
-                
-                // VÉRIFICATION D'UNE EXCEPTION POUR CE JOUR
-                let overrideDist = stepOverrides[totalRealDays];
-
                 if (overrideDist) {
-                    // Si le jour est forcé, on ignore le dénivelé et on coupe à la distance demandée
                     if (currentDayDist >= overrideDist) endOfDay = true;
                 } else {
-                    // Si pas d'exception, on applique la règle d'or standard
-                    if (currentDayElev >= targetElevMax) endOfDay = true;
-                    else if (currentDayDist >= targetDist && currentDayElev >= targetElevMin) endOfDay = true;
-                    else if (currentDayDist >= absoluteMaxDist) endOfDay = true;
+                    if (currentDayElev >= p['target-elev-max']) endOfDay = true;
+                    else if (currentDayDist >= p['target-dist'] && currentDayElev >= p['target-elev-min']) endOfDay = true;
+                    else if (currentDayDist >= p['max-dist']) endOfDay = true;
                 }
 
                 if (endOfDay) {
-                    const isCompleted = totalRealDays <= completedDays;
-                    const colorClass = isCompleted ? 'completed' : '';
-                    const icon = L.divIcon({
-                        className: `milestone-icon ${colorClass}`,
-                        html: `J${totalRealDays}`,
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
-                    });
-                    
-                    const marker = L.marker([curr.lat, curr.lng], {icon: icon}).addTo(map);
-                    
-                    const milestoneDate = new Date(baseDate);
-                    milestoneDate.setDate(baseDate.getDate() + totalRealDays - 1);
-                    const dateStr = milestoneDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
-                    
-                    let popupHtml = `<b>Étape J${totalRealDays} • ${dateStr}</b><br>Dist: ${Math.round(currentDayDist)}km<br>D+: ${Math.round(currentDayElev)}m`;
-                    if (overrideDist) popupHtml += `<br><span class="text-xs text-orange-600 font-bold">⚠️ Étape modifiée manuellement</span>`;
-                    
-                    if (!isVisitorMode) {
-                        if (!isCompleted) {
-                            popupHtml += `<br><button onclick="markDayCompleted(${totalRealDays})" class="mt-2 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs w-full transition">Valider cette étape</button>`;
-                        } else {
-                            popupHtml += `<br><button onclick="unmarkDayCompleted(${totalRealDays})" class="mt-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs w-full transition">Dévalider (revenir ici)</button>`;
-                        }
-                    }
-                    marker.bindPopup(popupHtml);
-                    
+                    createMilestone(totalRealDays, curr, currentDayDist, currentDayElev, !!overrideDist, false, baseDate);
+                    lastMilestoneDay = totalRealDays;
                     currentDayDist = 0;
                     currentDayElev = 0;
                     bikeDayCount++;
-                    
                     const completedWeeks = Math.floor((bikeDayCount - 1) / activeDaysPerWeek);
-                    totalRealDays = bikeDayCount + (completedWeeks * restDaysPerWeek);
+                    totalRealDays = bikeDayCount + completedWeeks * restDaysPerWeek;
                 }
             }
-            return totalRealDays;
+
+            // Dernière étape (l'arrivée) : elle n'avait pas de bulle avant
+            if (currentDayDist > 0.5 && lastBikePoint) {
+                createMilestone(totalRealDays, lastBikePoint, currentDayDist, currentDayElev, !!stepOverrides[totalRealDays], true, baseDate);
+                return totalRealDays;
+            }
+            return lastMilestoneDay;
         }
 
-        // === MASQUAGE JALONS SUR DEZOOM ===
-        map.on('zoomend', function() {
-            const currentZoom = map.getZoom();
-            const milestonesHidden = currentZoom < 7;
-            map.eachLayer(layer => {
-                if (layer instanceof L.Marker && layer.options.icon && layer.options.icon.options.className && layer.options.icon.options.className.includes('milestone-icon')) {
-                    if (layer._icon) {
-                        layer._icon.style.display = milestonesHidden ? 'none' : 'block';
-                    }
-                }
-            });
-        });
-
-        // === GRAPHIQUE DÉNIVELÉ INTÉRACTIF ===
+        // === GRAPHIQUE DÉNIVELÉ ===
         let elevChart;
         function drawElevationChart(points) {
             const ctx = document.getElementById('elevationChart').getContext('2d');
             if (elevChart) elevChart.destroy();
-            
-            let distances = [];
-            let elevations = [];
+
+            const distances = [];
+            const elevations = [];
             chartLatLngs = [];
-            let cumulativeDist = 0;
-            
+
             const bikePoints = points.filter(p => p.tripMode !== 'train');
-            let samplingRate = Math.max(1, Math.floor(bikePoints.length / 200));
-            
-            for (let i = 0; i < bikePoints.length; i += samplingRate) {
+            const samplingRate = Math.max(1, Math.floor(bikePoints.length / 200));
+            let cumulativeDist = 0;
+
+            // Distance cumulée calculée sur TOUS les points, puis échantillonnée (plus exact)
+            for (let i = 0; i < bikePoints.length; i++) {
                 if (i > 0) {
-                    const d = map.distance(bikePoints[i-1], bikePoints[i]) / 1000;
-                    if (d < 20) {
-                        cumulativeDist += d * samplingRate;
-                    }
+                    const d = map.distance(bikePoints[i - 1], bikePoints[i]) / 1000;
+                    if (d < 20) cumulativeDist += d;
                 }
-                distances.push(cumulativeDist.toFixed(1));
-                chartLatLngs.push(bikePoints[i]);
-                elevations.push(bikePoints[i].meta && bikePoints[i].meta.ele ? bikePoints[i].meta.ele : 0);
+                if (i % samplingRate === 0) {
+                    distances.push(cumulativeDist.toFixed(1));
+                    chartLatLngs.push(bikePoints[i]);
+                    elevations.push(hasEle(bikePoints[i]) ? bikePoints[i].meta.ele : null);
+                }
             }
 
             elevChart = new Chart(ctx, {
@@ -891,41 +930,30 @@
                         borderColor: '#3b82f6',
                         backgroundColor: 'rgba(59, 130, 246, 0.2)',
                         fill: true,
+                        spanGaps: true,
                         pointRadius: 0,
                         pointHoverRadius: 6,
-                        pointHoverBackgroundColor: '#1e3a8a' 
+                        pointHoverBackgroundColor: '#1e3a8a'
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    onHover: (event, chartElement) => {
-                        event.native.target.style.cursor = chartElement.length ? 'pointer' : 'default';
-                    },
+                    interaction: { mode: 'index', intersect: false },
+                    onHover: (event, els) => { event.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
                     onClick: (e, activeEls) => {
                         if (activeEls.length > 0) {
-                            const index = activeEls[0].index;
-                            const targetLatLng = chartLatLngs[index];
-                            if (targetLatLng) {
-                                map.flyTo(targetLatLng, 9, { duration: 1.5 });
-                            }
+                            const target = chartLatLngs[activeEls[0].index];
+                            if (target) map.flyTo(target, 9, { duration: 1.5 });
                         }
                     },
-                    scales: {
-                        x: { display: false },
-                        y: { beginAtZero: true }
-                    },
-                    plugins: { 
+                    scales: { x: { display: false }, y: { beginAtZero: true } },
+                    plugins: {
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                label: function(context) {
-                                    return context.parsed.y + ' m (Cliquez pour zoomer)';
-                                }
+                                title: (items) => `km ${items[0].label}`,
+                                label: (context) => Math.round(context.parsed.y) + ' m (cliquez pour zoomer)'
                             }
                         }
                     }
