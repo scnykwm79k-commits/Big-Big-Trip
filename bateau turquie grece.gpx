@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="VogueAuVent - GPX Viewer">
+  <metadata>
+    <name>Vogue Au Vent - Route</name>
+    <desc>Exported from VogueAuVent on 2026-11-22T19:15:12</desc>
+    <time>2026-11-22T19:15:12</time>
+  </metadata>
+  <rte>
+    <name>bateau turquie grece</name>
+    <rtept lat="38.30118523091897" lon="26.295441460240852">
+      <name>WP 1</name>
+    </rtept>
+    <rtept lat="38.35288193161736" lon="26.133416559910593">
+      <name>WP 2</name>
+    </rtept>
+    <rtept lat="38.3250688325227" lon="26.176918660154893">
+      <name>WP 3</name>
+    </rtept>
+    <rtept lat="38.20919417313261" lon="26.124054603691214">
+      <name>WP 4</name>
+    </rtept>
+    <rtept lat="38.13580130004102" lon="26.023132314078715">
+      <name>WP 5</name>
+    </rtept>
+    <rtept lat="38.01495009633463" lon="24.75090323194727">
+      <name>WP 6</name>
+    </rtept>
+    <rtept lat="37.9132057987121" lon="24.58887833161701">
+      <name>WP 7</name>
+    </rtept>
+    <rtept lat="37.62452793443861" lon="24.09731126112343">
+      <name>WP 8</name>
+    </rtept>
+    <rtept lat="37.6125658744807" lon="24.060237766980055">
+      <name>WP 9</name>
+    </rtept>
+    <rtept lat="37.60712793830705" lon="23.954509654052657">
+      <name>WP 10</name>
+    </rtept>
+    <rtept lat="37.63322640554508" lon="23.821319693611688">
+      <name>WP 11</name>
+    </rtept>
+    <rtept lat="37.66909683652724" lon="23.762276721457425">
+      <name>WP 12</name>
+    </rtept>
+    <rtept lat="37.9316168045818" lon="23.609863467756888">
+      <name>WP 13</name>
+    </rtept>
+    <rtept lat="37.9413619415599" lon="23.645563869524583">
+      <name>WP 14</name>
+    </rtept>
+  </rte>
+</gpx>
