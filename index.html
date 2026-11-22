@@ -61,12 +61,14 @@
 
         .milestone-icon {
             background-color: #2563eb; color: white;
-            border-radius: 50%; text-align: center; line-height: 24px;
+            border-radius: 12px; white-space: nowrap; text-align: center; line-height: 24px;
             font-weight: bold; font-size: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             border: 2px solid white; cursor: pointer;
         }
         .milestone-icon.completed { background-color: #16a34a; }
+        /* Étiquettes longues (J100 et plus, drapeau d'arrivée) : bulle allongée, police un peu réduite */
+        .milestone-icon.long { font-size: 10.5px; letter-spacing: -0.02em; }
 
         /* Lien Instagram, en bas à droite au-dessus du profil de dénivelé */
         #insta-link {
@@ -1926,11 +1928,14 @@
 
         function createMilestone(day, latlng, dist, elev, isOverride, isFinal, baseDate) {
             const isCompleted = day <= completedDays;
+            const label = isFinal ? `🏁${day}` : `J${day}`;
+            const isLong = label.length > 3;
+            const width = isFinal ? 40 : (label.length <= 2 ? 24 : label.length === 3 ? 28 : 34);
             const icon = L.divIcon({
-                className: `milestone-icon ${isCompleted ? 'completed' : ''}`,
-                html: isFinal ? `🏁${day}` : `J${day}`,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
+                className: `milestone-icon ${isLong ? 'long' : ''} ${isCompleted ? 'completed' : ''}`,
+                html: label,
+                iconSize: [width, 24],
+                iconAnchor: [width / 2, 12]
             });
             const milestoneDate = new Date(baseDate);
             milestoneDate.setDate(baseDate.getDate() + day - 1);
@@ -1986,15 +1991,19 @@
             transportDayCount = 0;
             const realDayFor = (bikeDay) => bikeDay + Math.floor((bikeDay - 1) / activeDaysPerWeek) * restDaysPerWeek + transportOffset;
 
-            // Place les trajets en attente sur le planning (appelé seulement si on reprend le vélo ensuite :
-            // le dernier jour du voyage reste donc le dernier jour de vélo)
-            const placeTransports = () => {
-                let day = totalRealDays;
+            // Place les trajets en attente sur le planning (en cours de route, ou au retour après le dernier jour de vélo)
+            let lastRidePoint = null;
+            const placeTransports = (startDay = totalRealDays, isReturn = false) => {
+                let day = startDay;
+                let lastPlacedDay = null;
                 pendingTransports.forEach(tr => {
                     const n = transportDaysFor(tr.hours);
+                    if (n > 0) lastPlacedDay = day + n - 1;
                     const isBoat = /bat|ferry/i.test(tr.name);
                     const label = n === 0
-                        ? (tr.hours ? `Trajet court (${tr.hours} h), le matin du J${day}` : `Durée non renseignée : aucun jour ajouté`)
+                        ? (!tr.hours ? `Durée non renseignée : aucun jour ajouté`
+                            : isReturn ? `Trajet court (${tr.hours} h), le soir du J${day - 1}`
+                            : `Trajet court (${tr.hours} h), le matin du J${day}`)
                         : (n === 1 ? `J${day}, journée de transport` : `J${day} à J${day + n - 1}, ${n} jours de transport`);
                     const date = new Date(baseDate);
                     date.setDate(baseDate.getDate() + day - 1);
@@ -2010,6 +2019,7 @@
                 });
                 pendingTransports = [];
                 totalRealDays = realDayFor(bikeDayCount);
+                return lastPlacedDay;
             };
 
             const closeDay = (atPoint, isOverride) => {
@@ -2066,6 +2076,7 @@
                     eleRef = hasEle(curr) ? curr.meta.ele : null;
                 }
                 lastBikePoint = curr;
+                lastRidePoint = curr;
 
                 const overrideDist = stepOverrides[totalRealDays];
                 let endOfDay = false;
@@ -2079,13 +2090,18 @@
                 if (endOfDay) closeDay(curr, !!overrideDist);
             }
 
-            // Dernière étape (l'arrivée)
-            if (currentDayDist > 0.5 && lastBikePoint) {
-                createMilestone(totalRealDays, lastBikePoint, currentDayDist, currentDayElev, !!stepOverrides[totalRealDays], true, baseDate);
-                milestoneInfo[totalRealDays] = { km: result.dist, lat: lastBikePoint.lat, lng: lastBikePoint.lng };
-                result.days = totalRealDays;
-            } else {
-                result.days = lastMilestoneDay;
+            // Dernier jour de vélo (🏁)
+            if (currentDayDist > 0.5 && lastRidePoint) {
+                createMilestone(totalRealDays, lastRidePoint, currentDayDist, currentDayElev, !!stepOverrides[totalRealDays], true, baseDate);
+                milestoneInfo[totalRealDays] = { km: result.dist, lat: lastRidePoint.lat, lng: lastRidePoint.lng };
+                lastMilestoneDay = totalRealDays;
+            }
+            result.days = lastMilestoneDay;
+
+            // Trajets retour (train, bateau) après le dernier jour de vélo : ils comptent dans la durée
+            if (pendingTransports.length) {
+                const lastTransportDay = placeTransports(lastMilestoneDay + 1, true);
+                if (lastTransportDay) result.days = Math.max(result.days, lastTransportDay);
             }
             return result;
         }
