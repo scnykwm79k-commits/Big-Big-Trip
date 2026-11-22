@@ -222,6 +222,9 @@
         #lb-close { top: 12px; right: 12px; font-size: 1.2rem; }
         .lb-count { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); color: #fff; font-family: var(--f-display); font-size: 1.05rem; }
 
+        /* Trajets en train / bateau sur la carte */
+        .transport-pin { width: 26px; height: 26px; line-height: 22px; text-align: center; font-size: 13px; background: #fff; border: 2px solid #ef4444; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+
         /* Pages du carnet sur la carte */
         .post-pin { width: 28px; height: 28px; line-height: 24px; text-align: center; font-size: 14px; background: #fff; border: 2px solid var(--c-red); border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
         .post-pop { font-family: var(--f-text); color: var(--c-ink); }
@@ -329,6 +332,8 @@
                 </select>
                 <button id="btn-add-gpx" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded transition">Ajouter le tracé</button>
             </div>
+            <p class="text-[10px] text-gray-400 mt-2 italic">🚆/⛴️ : indiquez la durée en heures. Jusqu'à 4 h, le trajet se fait le matin d'un jour de vélo ; au-delà, 1 jour par tranche de 24 h.</p>
+            <button id="btn-reset-gpx" class="text-[11px] text-gray-500 underline mt-1">Remplacer par la liste du code</button>
         </div>
 
         <button id="btn-recalc" class="w-full bg-blue-100 text-blue-700 hover:bg-blue-200 font-semibold py-2 rounded mb-6 transition">🔄 Recalculer les étapes</button>
@@ -522,7 +527,9 @@
             if (!keepOpen) toastTimeout = setTimeout(() => toast.classList.remove('visible'), 3000);
         }
 
-         // === ÉTAT ===
+        // === ÉTAT ===
+        // Liste utilisée au tout premier lancement, ou via « Remplacer par la liste du code » dans le menu.
+        // hours = durée du trajet en train/bateau (facultatif, modifiable aussi dans le menu).
         const defaultTraces = [
             { url: '2026-08-12_3192717650_Big Big Trip - Annecy to Zurich - komoot.gpx', nom: 'Annecy-Zurich', mode: 'bike' },
             { url: '2026-10-20_3192771285_Big Big Trip - Zurich to Venise - komoot.gpx', nom: 'Zurich-Venise', mode: 'bike' },
@@ -533,7 +540,7 @@
             { url: '2026-10-20_3342529635_Big Big Trip - Olympe à Istambul - komoot.gpx', nom: 'Olympe-Istambul', mode: 'bike' },
             { url: '2026-10-20_3358792947_Big Big Trip - Istanbul à Cesme - komoot.gpx', nom: 'Istambul- Cesme', mode: 'bike' },
             { url: '2026-11-11_3389882710_Bato Turquie - komoot.gpx', nom: 'Istambul-Bato', mode: 'train' },
-            { url: '2026-11-22_3372888121_Grèce retour - komoot.gpxx', nom: 'Athènes - Patras', mode: 'bike' },
+            { url: '2026-11-22_3372888121_Grèce retour - komoot.gpx', nom: 'Athènes - Patras', mode: 'bike' },
             { url: 'bateau grece italie.gpx', nom: 'Italie-Bato', mode: 'train' },
             { url: 'bateau turquie grece.gpx', nom: 'Grèce-Bato', mode: 'train' },
             { url: '2026-10-30_3372888121_TRAIN RETOUR - komoot.gpx', nom: 'Train-Retour', mode: 'train' }
@@ -559,6 +566,16 @@
         const ELE_THRESHOLD = 5;
         // En dessous de cette distance (km) avant un train, on ne coupe pas la journée.
         const MIN_KM_BEFORE_TRAIN = 5;
+        // Trajets en train/bateau : jusqu'à ce nombre d'heures, le trajet se fait le matin
+        // d'un jour de vélo (0 jour ajouté). Au-delà : 1 jour par tranche de 24 h.
+        const TRANSPORT_SAME_DAY_HOURS = 4;
+        function transportDaysFor(hours) {
+            const h = Number(hours) || 0;
+            if (h <= TRANSPORT_SAME_DAY_HOURS) return 0;
+            return Math.ceil(h / 24);
+        }
+        let traceStatus = {};      // index du tracé -> 'ok' | 'error' | 'empty'
+        let transportDayCount = 0; // jours de transport dans la planification
 
         // === PARAMÈTRES DE PLANIFICATION (désormais sauvegardés) ===
         const PARAM_DEFAULTS = { 'target-dist': 70, 'max-dist': 120, 'target-elev-min': 450, 'target-elev-max': 1350, 'rest-days': 2 };
@@ -580,6 +597,8 @@
         }
         function getRestDays() { return Math.min(6, Math.max(0, Math.round(readNum('rest-days')))); }
         function isRestDay(day) {
+            // Après un calcul, on connaît les vrais jours de vélo (pauses ET transports exclus)
+            if (Object.keys(milestoneInfo).length) return !milestoneInfo[day];
             const rest = getRestDays();
             if (rest === 0) return false;
             return ((day - 1) % 7) >= (7 - rest);
@@ -609,7 +628,7 @@
 
         function addOverride(day, dist) {
             if (!(day > 0 && dist > 0)) { updateStatus("Indiquez un jour et une distance supérieurs à 0."); return false; }
-            if (isRestDay(day)) { updateStatus(`J${day} est un jour de pause : choisissez un jour roulé.`); return false; }
+            if (isRestDay(day)) { updateStatus(`J${day} n'est pas un jour de vélo (pause ou transport) : choisissez un jour roulé.`); return false; }
             stepOverrides[day] = dist;
             persistOverrides();
             updateStatus(`Étape J${day} forcée à ${dist} km`);
@@ -660,10 +679,17 @@
         function renderGPX() {
             gpxList.innerHTML = '';
             tracesAutomatiques.forEach((trace, idx) => {
-                const icon = trace.mode === 'train' ? '🚆' : '🚲';
+                const isTrain = trace.mode === 'train';
+                const icon = isTrain ? (/bat|ferry/i.test(trace.nom + trace.url) ? '⛴️' : '🚆') : '🚲';
+                const st = traceStatus[idx];
+                const problem = st === 'error' ? 'Fichier introuvable : vérifiez le nom exact (majuscules, accents, extension)'
+                              : st === 'empty' ? 'Fichier lu mais sans tracé exploitable' : '';
+                const hoursInput = isTrain ? `
+                    <input type="number" min="0" step="0.5" value="${trace.hours || ''}" placeholder="h" title="Durée du trajet (heures)"
+                        onchange="setTraceHours(${idx}, this.value)" class="w-11 border rounded px-1 mx-1 text-[11px] text-gray-800"><span class="text-[10px] text-gray-400 mr-1">h</span>` : '';
                 gpxList.innerHTML += `
-                <li class="flex justify-between items-center bg-white p-1 px-2 rounded border border-gray-200">
-                    <span class="truncate flex-1 text-[11px]" title="${escapeHtml(trace.url)}"><b>${idx + 1}. ${icon} ${escapeHtml(trace.nom)}</b></span>
+                <li class="flex justify-between items-center bg-white p-1 px-2 rounded border ${problem ? 'border-red-400 bg-red-50' : 'border-gray-200'}">
+                    <span class="truncate flex-1 text-[11px] ${problem ? 'text-red-700' : ''}" title="${escapeHtml(problem ? problem + ' — ' + trace.url : trace.url)}"><b>${problem ? '⚠️ ' : ''}${idx + 1}. ${icon} ${escapeHtml(trace.nom)}</b></span>${hoursInput}
                     <button onclick="moveGPX(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="Monter" class="text-gray-500 px-1 hover:bg-gray-100 rounded disabled:opacity-30">↑</button>
                     <button onclick="moveGPX(${idx}, 1)" ${idx === tracesAutomatiques.length - 1 ? 'disabled' : ''} title="Descendre" class="text-gray-500 px-1 hover:bg-gray-100 rounded disabled:opacity-30">↓</button>
                     <button onclick="removeGPX(${idx})" title="Supprimer" class="text-red-500 font-bold px-1 hover:bg-red-50 rounded">&times;</button>
@@ -677,6 +703,24 @@
             saveToCloud({ gpxList: tracesAutomatiques });
             if (isInitialLoadingFinished) reloadTraces(); // plus besoin de rafraîchir la page
         }
+
+        window.setTraceHours = function(idx, value) {
+            const t = tracesAutomatiques[idx];
+            if (!t) return;
+            const h = parseFloat(String(value).replace(',', '.'));
+            t.hours = Number.isFinite(h) && h > 0 ? h : 0;
+            lsSet('my_bike_trip_gpx', tracesAutomatiques);
+            saveToCloud({ gpxList: tracesAutomatiques });
+            if (isInitialLoadingFinished) recalculateTotals();
+            const n = transportDaysFor(t.hours);
+            updateStatus(`${t.nom} : ${t.hours} h, ${n === 0 ? 'pas de jour ajouté' : n + ' jour' + (n > 1 ? 's' : '') + ' de transport'}`);
+        };
+
+        document.getElementById('btn-reset-gpx').addEventListener('click', () => {
+            if (!confirm("Remplacer la liste des tracés par celle écrite dans le code (defaultTraces) ?")) return;
+            tracesAutomatiques = JSON.parse(JSON.stringify(defaultTraces));
+            persistGpx();
+        });
 
         // L'ordre de la liste = l'ordre du voyage (il détermine la numérotation des étapes)
         window.moveGPX = function(idx, delta) {
@@ -853,6 +897,7 @@
         function loadTraces(onDone) {
             const gen = ++loadGeneration;
             gpxLayerGroup.clearLayers();
+            traceStatus = {};
             const total = tracesAutomatiques.length;
             if (total === 0) { onDone(); return; }
 
@@ -877,7 +922,7 @@
             let baseUri = window.location.href;
             if (baseUri.startsWith('blob:') || baseUri.startsWith('about:')) baseUri = 'https://localhost/';
 
-            tracesAutomatiques.forEach(file => {
+            tracesAutomatiques.forEach((file, idx) => {
                 const isTrain = file.mode === 'train';
                 const safeUrl = new URL(encodeURI(file.url), baseUri).href;
                 const gpxLayer = new L.GPX(safeUrl, {
@@ -890,8 +935,22 @@
                     marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' }
                 });
                 gpxLayer.tripMode = file.mode;
-                gpxLayer.on('loaded', step);
-                gpxLayer.on('error', () => { console.warn("Fichier introuvable/erreur :", file.url); step(); });
+                gpxLayer.traceIndex = idx;
+                gpxLayer.traceUrl = file.url;
+                gpxLayer.on('loaded', () => {
+                    if (gen !== loadGeneration) return;
+                    traceStatus[idx] = extractPoints(gpxLayer).length ? 'ok' : 'empty';
+                    if (traceStatus[idx] === 'empty') console.warn("Fichier GPX sans tracé :", file.url);
+                    renderGPX();
+                    step();
+                });
+                gpxLayer.on('error', () => {
+                    if (gen !== loadGeneration) return;
+                    console.warn("Fichier introuvable/erreur :", safeUrl);
+                    traceStatus[idx] = 'error';
+                    renderGPX();
+                    step();
+                });
                 gpxLayer.addTo(gpxLayerGroup);
             });
         }
@@ -1838,7 +1897,16 @@
             gpxLayerGroup.eachLayer(layer => {
                 try {
                     const pts = extractPoints(layer);
-                    pts.forEach(p => p.tripMode = layer.tripMode || 'bike');
+                    const t = tracesAutomatiques[layer.traceIndex];
+                    const sameTrace = t && t.url === layer.traceUrl;
+                    const hours = sameTrace ? (t.hours || 0) : 0;
+                    const name = sameTrace ? t.nom : 'Trajet';
+                    pts.forEach(p => {
+                        p.tripMode = layer.tripMode || 'bike';
+                        p.traceIndex = layer.traceIndex;
+                        p.transportHours = hours;
+                        p.traceName = name;
+                    });
                     globalPoints.push(...pts);
                 } catch (e) { console.warn("Tracé ignoré dans le calcul global", e); }
             });
@@ -1848,7 +1916,8 @@
             totalCalculatedDays = result.days;
             document.getElementById('total-dist').innerText = Math.round(result.dist) + ' km';
             document.getElementById('total-elev').innerText = Math.round(result.elev) + ' m';
-            document.getElementById('total-time').innerText = totalCalculatedDays + ' jours';
+            document.getElementById('total-time').innerText = totalCalculatedDays + ' jours' +
+                (transportDayCount ? ` (dont ${transportDayCount} de transport)` : '');
             updateProgressBar();
             updateMilestoneVisibility();
             drawElevationChart(globalPoints);
@@ -1911,6 +1980,37 @@
             let lastMilestoneDay = 0;
             let lastBikePoint = null;
             let eleRef = null; // altitude de référence pour le lissage
+            let transportOffset = 0;      // jours de transport déjà placés
+            let pendingTransports = [];   // trajets rencontrés depuis le dernier point vélo
+            let prevTraceIndex = null;
+            transportDayCount = 0;
+            const realDayFor = (bikeDay) => bikeDay + Math.floor((bikeDay - 1) / activeDaysPerWeek) * restDaysPerWeek + transportOffset;
+
+            // Place les trajets en attente sur le planning (appelé seulement si on reprend le vélo ensuite :
+            // le dernier jour du voyage reste donc le dernier jour de vélo)
+            const placeTransports = () => {
+                let day = totalRealDays;
+                pendingTransports.forEach(tr => {
+                    const n = transportDaysFor(tr.hours);
+                    const isBoat = /bat|ferry/i.test(tr.name);
+                    const label = n === 0
+                        ? (tr.hours ? `Trajet court (${tr.hours} h), le matin du J${day}` : `Durée non renseignée : aucun jour ajouté`)
+                        : (n === 1 ? `J${day}, journée de transport` : `J${day} à J${day + n - 1}, ${n} jours de transport`);
+                    const date = new Date(baseDate);
+                    date.setDate(baseDate.getDate() + day - 1);
+                    const dateStr = date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+                    L.marker([tr.latlng.lat, tr.latlng.lng], {
+                        icon: L.divIcon({ className: '', html: `<div class="transport-pin">${isBoat ? '⛴️' : '🚆'}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }),
+                        zIndexOffset: 500
+                    }).bindPopup(`<b>${escapeHtml(tr.name)}</b><br>${tr.hours ? tr.hours + ' h de trajet' : ''}${tr.hours ? '<br>' : ''}${label}<br><span class="text-xs text-gray-500">Départ ${dateStr}</span>`)
+                      .addTo(milestoneLayerGroup);
+                    day += n;
+                    transportOffset += n;
+                    transportDayCount += n;
+                });
+                pendingTransports = [];
+                totalRealDays = realDayFor(bikeDayCount);
+            };
 
             const closeDay = (atPoint, isOverride) => {
                 createMilestone(totalRealDays, atPoint, currentDayDist, currentDayElev, isOverride, false, baseDate);
@@ -1919,22 +2019,28 @@
                 currentDayDist = 0;
                 currentDayElev = 0;
                 bikeDayCount++;
-                const completedWeeks = Math.floor((bikeDayCount - 1) / activeDaysPerWeek);
-                totalRealDays = bikeDayCount + completedWeeks * restDaysPerWeek;
+                totalRealDays = realDayFor(bikeDayCount);
             };
 
             for (let i = 0; i < points.length; i++) {
                 const curr = points[i];
 
                 if (curr.tripMode === 'train') {
-                    // Un tronçon en train termine la journée à la gare de départ
-                    if (lastBikePoint && currentDayDist >= MIN_KM_BEFORE_TRAIN) {
-                        closeDay(lastBikePoint, !!stepOverrides[totalRealDays]);
+                    if (curr.traceIndex !== prevTraceIndex) {
+                        // Début d'un trajet en train/bateau : la journée de vélo s'arrête à la gare / au port
+                        const tDays = transportDaysFor(curr.transportHours);
+                        if (lastBikePoint && (currentDayDist >= MIN_KM_BEFORE_TRAIN || (tDays > 0 && currentDayDist > 0.5))) {
+                            closeDay(lastBikePoint, !!stepOverrides[totalRealDays]);
+                        }
+                        pendingTransports.push({ name: curr.traceName, hours: curr.transportHours, latlng: curr });
                     }
+                    prevTraceIndex = curr.traceIndex;
                     lastBikePoint = null;
                     eleRef = null;
                     continue;
                 }
+                prevTraceIndex = curr.traceIndex;
+                if (pendingTransports.length) placeTransports();
 
                 const d = lastBikePoint ? map.distance(lastBikePoint, curr) / 1000 : Infinity;
                 if (d < 20) {
