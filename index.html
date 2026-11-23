@@ -366,8 +366,8 @@
         <div class="bg-gray-100 p-4 rounded mb-6">
             <p class="text-sm text-gray-600 mb-1">Total Distance</p>
             <p id="total-dist" class="text-xl font-bold">0 km</p>
-            <p class="text-sm text-gray-600 mt-2 mb-1">Total Dénivelé</p>
-            <p id="total-elev" class="text-xl font-bold">0 m</p>
+            <p class="text-sm text-gray-600 mt-2 mb-1">Total Dénivelé (D+ / D-)</p>
+            <p class="text-xl font-bold"><span id="total-elev">0 m</span> <span class="text-gray-400 font-normal">/</span> <span id="total-loss">0 m</span></p>
             <p class="text-sm text-gray-600 mt-2 mb-1">Durée estimée (avec pauses)</p>
             <p id="total-time" class="text-xl font-bold text-green-600">0 jours</p>
         </div>
@@ -2015,7 +2015,7 @@
                 el.style.height = '24px';
                 el.textContent = label;
                 const popup = new maplibregl.Popup({ offset: 16, closeButton: false })
-                    .setHTML(`<b>Étape J${day}</b><br>km ${fmtKm(info.km)}`);
+                    .setHTML(`<b>Étape J${day}</b><br>Dist: ${Math.round(info.dayKm || 0)}km<br>D+: ${Math.round(info.up || 0)}m<br>D-: ${Math.round(info.down || 0)}m`);
                 markers3d.push(new maplibregl.Marker({ element: el }).setLngLat([info.lng, info.lat]).setPopup(popup).addTo(map3d));
             });
             if (sharedPosData) {
@@ -2122,7 +2122,8 @@
             const result = drawMilestonesAndGetDays(globalPoints);
             totalCalculatedDays = result.days;
             document.getElementById('total-dist').innerText = Math.round(result.dist) + ' km';
-            document.getElementById('total-elev').innerText = Math.round(result.elev) + ' m';
+            document.getElementById('total-elev').innerText = '+' + Math.round(result.elev) + ' m';
+            document.getElementById('total-loss').innerText = '-' + Math.round(result.loss) + ' m';
             document.getElementById('total-time').innerText = totalCalculatedDays + ' jours' +
                 (transportDayCount ? ` (dont ${transportDayCount} de transport)` : '');
             updateProgressBar();
@@ -2131,7 +2132,7 @@
             onMilestonesUpdated();
         }
 
-        function createMilestone(day, latlng, dist, elev, isOverride, isFinal, baseDate) {
+        function createMilestone(day, latlng, dist, elev, isOverride, isFinal, baseDate, loss = 0) {
             const isCompleted = day <= completedDays;
             const label = isFinal ? `🏁${day}` : `J${day}`;
             const isLong = label.length > 3;
@@ -2149,7 +2150,7 @@
             const lat = latlng.lat.toFixed(3);
             const lng = latlng.lng.toFixed(3);
 
-            let html = `<b>Étape J${day} • ${dateStr}</b>${isFinal ? ' 🏁' : ''}<br>Dist: ${Math.round(dist)}km<br>D+: ${Math.round(elev)}m`;
+            let html = `<b>Étape J${day} • ${dateStr}</b>${isFinal ? ' 🏁' : ''}<br>Dist: ${Math.round(dist)}km<br>D+: ${Math.round(elev)}m<br>D-: ${Math.round(loss)}m`;
             if (isOverride) html += `<br><span class="text-xs text-orange-600 font-bold">⚠️ Étape modifiée manuellement</span>`;
 
             html += `<button onclick="showStageWeather(${day}, ${lat}, ${lng}, '${iso}')" class="mt-2 bg-sky-100 hover:bg-sky-200 text-sky-800 px-2 py-1 rounded text-xs w-full transition">🌤️ Météo à l'arrivée</button>`;
@@ -2175,7 +2176,7 @@
             milestoneLayerGroup.clearLayers();
             milestoneMarkers = {};
             milestoneInfo = {};
-            const result = { days: 0, dist: 0, elev: 0 };
+            const result = { days: 0, dist: 0, elev: 0, loss: 0 };
             if (!points || points.length === 0) return result;
 
             const p = getParams();
@@ -2185,6 +2186,7 @@
 
             let currentDayDist = 0;
             let currentDayElev = 0;
+            let currentDayLoss = 0;
             let bikeDayCount = 1;
             let totalRealDays = 1;
             let lastMilestoneDay = 0;
@@ -2228,11 +2230,12 @@
             };
 
             const closeDay = (atPoint, isOverride) => {
-                createMilestone(totalRealDays, atPoint, currentDayDist, currentDayElev, isOverride, false, baseDate);
-                milestoneInfo[totalRealDays] = { km: result.dist, lat: atPoint.lat, lng: atPoint.lng };
+                createMilestone(totalRealDays, atPoint, currentDayDist, currentDayElev, isOverride, false, baseDate, currentDayLoss);
+                milestoneInfo[totalRealDays] = { km: result.dist, lat: atPoint.lat, lng: atPoint.lng, dayKm: currentDayDist, up: currentDayElev, down: currentDayLoss };
                 lastMilestoneDay = totalRealDays;
                 currentDayDist = 0;
                 currentDayElev = 0;
+                currentDayLoss = 0;
                 bikeDayCount++;
                 totalRealDays = realDayFor(bikeDayCount);
             };
@@ -2272,6 +2275,9 @@
                                 result.elev += diff;
                                 eleRef = curr.meta.ele;
                             } else if (diff <= -ELE_THRESHOLD) {
+                                // D- lissé, même méthode que le D+
+                                currentDayLoss -= diff;
+                                result.loss -= diff;
                                 eleRef = curr.meta.ele;
                             }
                         }
@@ -2297,8 +2303,8 @@
 
             // Dernier jour de vélo (🏁)
             if (currentDayDist > 0.5 && lastRidePoint) {
-                createMilestone(totalRealDays, lastRidePoint, currentDayDist, currentDayElev, !!stepOverrides[totalRealDays], true, baseDate);
-                milestoneInfo[totalRealDays] = { km: result.dist, lat: lastRidePoint.lat, lng: lastRidePoint.lng };
+                createMilestone(totalRealDays, lastRidePoint, currentDayDist, currentDayElev, !!stepOverrides[totalRealDays], true, baseDate, currentDayLoss);
+                milestoneInfo[totalRealDays] = { km: result.dist, lat: lastRidePoint.lat, lng: lastRidePoint.lng, dayKm: currentDayDist, up: currentDayElev, down: currentDayLoss };
                 lastMilestoneDay = totalRealDays;
             }
             result.days = lastMilestoneDay;
